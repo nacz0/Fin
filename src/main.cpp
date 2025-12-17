@@ -13,9 +13,22 @@
 #include <cstdio>
 #include <memory>
 #include <vector>
-#include <filesystem> // <--- NOWOŚĆ: Biblioteka do obsługi plików
+#include <filesystem>
 
-namespace fs = std::filesystem; // Skrót, żeby nie pisać ciągle std::filesystem
+namespace fs = std::filesystem;
+
+// --- NOWOŚĆ: Struktura pojedynczej karty ---
+struct EditorTab {
+    std::string name;       // Nazwa wyświetlana (np. "main.cpp")
+    std::string path;       // Pełna ścieżka (do zapisu)
+    TextEditor editor;      // Sam edytor kodu
+    bool isOpen = true;     // Czy karta ma być zamknięta?
+
+    // Konstruktor ustawiający język C++ na start
+    EditorTab() {
+        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
+    }
+};
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -67,36 +80,21 @@ int main(int, char**) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; 
 
-    // --- ZMIANA ROZMIARU I CZCIONKI ---
-    float baseFontSize = 24.0f; // Zmień na 20.0f lub 24.0f jeśli chcesz jeszcze większe
-    
-    // Ładujemy czcionkę systemową Windows (Consolas jest świetna do kodu)
-    // UWAGA: Używamy podwójnych ukośników \\ w ścieżce
+    // --- CZCIONKI (Z poprzedniego kroku) ---
+    float baseFontSize = 18.0f; 
     ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", baseFontSize);
-    
-    if (font == nullptr) {
-        // Jeśli nie znajdzie Consolas, spróbuj Arial
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", baseFontSize);
-    }
-
-    // Opcjonalnie: Powiększ same przyciski, suwaki i odstępy
-    // Jeśli masz ekran 4K, ustaw tu 2.0f. Dla Full HD wystarczy 1.0f - 1.2f.
-    ImGui::GetStyle().ScaleAllSizes(2.0f); 
-    // -----------------------------------
+    if (font == nullptr) io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", baseFontSize);
+    ImGui::GetStyle().ScaleAllSizes(1.0f); 
 
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    TextEditor editor;
-    editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
-    editor.SetText("// Witaj w Fin!\n// Wybierz plik z panelu po lewej stronie.");
-
     // --- ZMIENNE STANU ---
-    std::string compilationOutput = "Gotowy.";
-    std::string currentFile = ""; 
+    std::vector<EditorTab> tabs; // Lista otwartych plików
+    int activeTab = -1;          // Indeks aktualnie wybranej karty (-1 = brak)
     
-    // Startujemy w katalogu, w którym jest program (lub src jeśli w build)
+    std::string compilationOutput = "Witaj w Fin! Otworz plik, aby zaczac.";
     fs::path currentPath = fs::current_path(); 
 
     while (!glfwWindowShouldClose(window)) {
@@ -108,38 +106,57 @@ int main(int, char**) {
 
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-        // --- MENU GÓRNE ---
+        // --- GÓRNE MENU ---
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Plik")) {
+                if (ImGui::MenuItem("Nowy", "Ctrl+N")) {
+                    // Dodaj nową pustą kartę
+                    EditorTab newTab;
+                    newTab.name = "Bez tytulu";
+                    newTab.path = "";
+                    tabs.push_back(newTab);
+                    activeTab = tabs.size() - 1; // Przełącz na nową
+                }
                 if (ImGui::MenuItem("Zapisz", "Ctrl+S")) {
-                    if (currentFile.empty()) {
-                         auto dest = pfd::save_file("Zapisz jako...", currentPath.string()).result();
-                         if (!dest.empty()) currentFile = dest;
-                    }
-                    if (!currentFile.empty()) {
-                        SaveFile(currentFile, editor.GetText());
-                        compilationOutput = "Zapisano: " + currentFile;
+                    if (activeTab >= 0 && activeTab < tabs.size()) {
+                        auto& tab = tabs[activeTab];
+                        if (tab.path.empty()) {
+                             auto dest = pfd::save_file("Zapisz jako...", currentPath.string()).result();
+                             if (!dest.empty()) {
+                                 tab.path = dest;
+                                 tab.name = fs::path(dest).filename().string();
+                             }
+                        }
+                        if (!tab.path.empty()) {
+                            SaveFile(tab.path, tab.editor.GetText());
+                            compilationOutput = "Zapisano: " + tab.path;
+                        }
                     }
                 }
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Buduj")) {
                 if (ImGui::MenuItem("Kompiluj i Uruchom", "F5")) {
-                    if (currentFile.empty()) {
-                        compilationOutput = "Blad: Najpierw zapisz plik!";
-                    } else {
-                        SaveFile(currentFile, editor.GetText());
-                        compilationOutput = "Kompilacja " + currentFile + "...\n";
-                        std::string exeName = currentFile + ".exe";
-                        std::string cmd = "g++ \"" + currentFile + "\" -o \"" + exeName + "\" 2>&1";
-                        std::string buildResult = ExecCommand(cmd.c_str());
-                        
-                        if (buildResult.empty()) {
-                            compilationOutput += "Sukces! Uruchamianie...\n----------------\n";
-                            compilationOutput += ExecCommand(("\"" + exeName + "\"").c_str());
+                    if (activeTab >= 0 && activeTab < tabs.size()) {
+                        auto& tab = tabs[activeTab];
+                        if (tab.path.empty()) {
+                            compilationOutput = "Blad: Najpierw zapisz plik!";
                         } else {
-                            compilationOutput += "Blad kompilacji:\n" + buildResult;
+                            SaveFile(tab.path, tab.editor.GetText());
+                            compilationOutput = "Kompilacja " + tab.name + "...\n";
+                            std::string exeName = tab.path + ".exe";
+                            std::string cmd = "g++ \"" + tab.path + "\" -o \"" + exeName + "\" 2>&1";
+                            std::string buildResult = ExecCommand(cmd.c_str());
+                            
+                            if (buildResult.empty()) {
+                                compilationOutput += "Sukces! Uruchamianie...\n----------------\n";
+                                compilationOutput += ExecCommand(("\"" + exeName + "\"").c_str());
+                            } else {
+                                compilationOutput += "Blad kompilacji:\n" + buildResult;
+                            }
                         }
+                    } else {
+                        compilationOutput = "Nie wybrano zadnego pliku do kompilacji.";
                     }
                 }
                 ImGui::EndMenu();
@@ -147,52 +164,112 @@ int main(int, char**) {
             ImGui::EndMainMenuBar();
         }
 
-        std::string title = "Fin - " + (currentFile.empty() ? "Bez tytulu" : currentFile);
+        // Tytuł okna
+        std::string title = "Fin";
+        if (activeTab >= 0 && activeTab < tabs.size()) 
+            title += " - " + tabs[activeTab].name;
         glfwSetWindowTitle(window, title.c_str());
 
-        // --- OKNO 1: EKSPLORATOR PLIKÓW (Nowość!) ---
+        // --- EKSPLORATOR ---
         ImGui::Begin("Eksplorator");
-        
-        // Przycisk "W górę" (..)
-        if (ImGui::Button(".. (W gore)")) {
-            if (currentPath.has_parent_path())
-                currentPath = currentPath.parent_path();
+        if (ImGui::Button("..")) {
+            if (currentPath.has_parent_path()) currentPath = currentPath.parent_path();
         }
         ImGui::Separator();
-
-        // Pętla po plikach w folderze (to magia std::filesystem)
         try {
             for (const auto& entry : fs::directory_iterator(currentPath)) {
                 const auto& path = entry.path();
                 std::string filename = path.filename().string();
                 
-                // Rozróżniamy foldery i pliki
                 if (entry.is_directory()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255)); // Żółty dla folderów
+                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255));
                     if (ImGui::Selectable(("[DIR] " + filename).c_str())) {
-                        currentPath = path; // Wejdź do folderu
+                        currentPath = path;
                     }
                     ImGui::PopStyleColor();
                 } else {
-                    // Biały dla plików
                     if (ImGui::Selectable(("  " + filename).c_str())) {
-                        currentFile = path.string();
-                        editor.SetText(OpenFile(currentFile));
-                        compilationOutput = "Otwarto: " + filename;
+                        // LOGIKA OTWIERANIA W NOWEJ KARCIE
+                        std::string fullPath = path.string();
+                        
+                        // 1. Sprawdź czy już otwarte
+                        bool alreadyOpen = false;
+                        for (int i = 0; i < tabs.size(); i++) {
+                            if (tabs[i].path == fullPath) {
+                                activeTab = i; // Przełącz na ten plik
+                                alreadyOpen = true;
+                                break;
+                            }
+                        }
+
+                        // 2. Jeśli nie, otwórz nową kartę
+                        if (!alreadyOpen) {
+                            EditorTab newTab;
+                            newTab.name = filename;
+                            newTab.path = fullPath;
+                            newTab.editor.SetText(OpenFile(fullPath));
+                            tabs.push_back(newTab);
+                            activeTab = tabs.size() - 1;
+                        }
                     }
                 }
             }
-        } catch (const fs::filesystem_error& e) {
-            ImGui::TextColored(ImVec4(1,0,0,1), "Blad dostepu do folderu!");
+        } catch (...) {}
+        ImGui::End();
+
+        // --- OKNO EDYTORA Z ZAKŁADKAMI ---
+        ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar);
+        
+        if (tabs.empty()) {
+            ImGui::Text("Brak otwartych plikow.");
+            if (ImGui::Button("Utworz nowy plik")) {
+                 EditorTab newTab;
+                 newTab.name = "Bez tytulu";
+                 tabs.push_back(newTab);
+                 activeTab = 0;
+            }
+        } else {
+            // Rysujemy pasek zakładek
+            if (ImGui::BeginTabBar("MainTabBar", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs)) {
+                
+                for (int i = 0; i < tabs.size(); i++) {
+                    bool open = true;
+                    
+                    // --- FIX START ---
+                    // Tworzymy unikalną etykietę: "NazwaPliku##Indeks"
+                    // Użytkownik widzi "NazwaPliku", a ImGui widzi różnicę dzięki "##i"
+                    // Ponieważ 'i' jest unikalne dla każdej karty w pętli, ID też będzie unikalne.
+                    std::string label = tabs[i].name + "##" + std::to_string(i);
+                    // --- FIX END ---
+
+                    // Używamy 'label' zamiast 'tabs[i].name'
+                    if (ImGui::BeginTabItem(label.c_str(), &open)) {
+                        activeTab = i;
+                        tabs[i].editor.Render("CodeEditor");
+                        ImGui::EndTabItem();
+                    }
+
+                    if (!open) {
+                        tabs[i].isOpen = false;
+                    }
+                }
+                ImGui::EndTabBar();
+            }
+
+            // Usuwanie zamkniętych kart (poza pętlą rysowania, żeby nie psuć pamięci)
+            for (int i = 0; i < tabs.size(); ) {
+                if (!tabs[i].isOpen) {
+                    tabs.erase(tabs.begin() + i);
+                    // Korekta aktywnej karty po usunięciu
+                    if (activeTab >= i && activeTab > 0) activeTab--;
+                } else {
+                    i++;
+                }
+            }
         }
         ImGui::End();
 
-        // --- OKNO 2: EDYTOR ---
-        ImGui::Begin("Kod Zrodlowy");
-        editor.Render("CodeEditor");
-        ImGui::End();
-
-        // --- OKNO 3: KONSOLA ---
+        // --- KONSOLA ---
         ImGui::Begin("Konsola Wyjscia");
         ImGui::TextWrapped("%s", compilationOutput.c_str());
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
