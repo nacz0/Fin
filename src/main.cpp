@@ -67,6 +67,23 @@ int main(int, char**) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; 
 
+    // --- ZMIANA ROZMIARU I CZCIONKI ---
+    float baseFontSize = 24.0f; // Zmień na 20.0f lub 24.0f jeśli chcesz jeszcze większe
+    
+    // Ładujemy czcionkę systemową Windows (Consolas jest świetna do kodu)
+    // UWAGA: Używamy podwójnych ukośników \\ w ścieżce
+    ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", baseFontSize);
+    
+    if (font == nullptr) {
+        // Jeśli nie znajdzie Consolas, spróbuj Arial
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", baseFontSize);
+    }
+
+    // Opcjonalnie: Powiększ same przyciski, suwaki i odstępy
+    // Jeśli masz ekran 4K, ustaw tu 2.0f. Dla Full HD wystarczy 1.0f - 1.2f.
+    ImGui::GetStyle().ScaleAllSizes(2.0f); 
+    // -----------------------------------
+
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
