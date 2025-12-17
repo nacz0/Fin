@@ -36,7 +36,10 @@ if(NOT pfd_POPULATED)
     FetchContent_Populate(pfd)
 endif()
 
-add_executable(Fin src/main.cpp)
+add_executable(Fin 
+    src/main.cpp 
+    src/Utils.cpp
+)
 
 target_include_directories(Fin PRIVATE 
     ${imgui_SOURCE_DIR} 

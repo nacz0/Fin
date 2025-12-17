@@ -5,13 +5,12 @@
 #include "portable-file-dialogs.h" 
 #include <GLFW/glfw3.h>
 
+// --- NASZE MODUŁY ---
+#include "Utils.h"      // Tu są funkcje OpenFile, SaveFile, ExecCommand
+#include "EditorTab.h"  // Tu jest struktura EditorTab
+// --------------------
+
 #include <iostream>
-#include <fstream>
-#include <string>
-#include <sstream>
-#include <array>
-#include <cstdio>
-#include <memory>
 #include <vector>
 #include <filesystem>
 #include <future>
@@ -19,53 +18,10 @@
 
 namespace fs = std::filesystem;
 
-// --- STRUKTURY DANYCH ---
-
-struct EditorTab {
-    std::string name;       // Nazwa wyświetlana na zakładce
-    std::string path;       // Pełna ścieżka do pliku
-    TextEditor editor;      // Instancja edytora tekstu
-    bool isOpen = true;     // Flaga do zamykania
-
-    EditorTab() {
-        // Domyślnie ustawiamy język C++
-        editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
-    }
-};
-
 // --- FUNKCJE POMOCNICZE ---
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
-}
-
-void SaveFile(const std::string& filename, const std::string& text) {
-    std::ofstream out(filename);
-    out << text;
-    out.close();
-}
-
-std::string OpenFile(const std::string& filename) {
-    std::ifstream in(filename);
-    if (in) {
-        std::stringstream buffer;
-        buffer << in.rdbuf();
-        return buffer.str();
-    }
-    return "";
-}
-
-// Funkcja wykonująca komendę systemową i zwracająca jej wynik (stdout + stderr)
-std::string ExecCommand(const char* cmd) {
-    std::array<char, 128> buffer;
-    std::string result;
-    // _popen to funkcja Windowsowa do otwierania potoków procesów
-    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd, "r"), _pclose);
-    if (!pipe) return "popen() failed!";
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
 }
 
 // --- MAIN ---
