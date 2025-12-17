@@ -2,24 +2,27 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "TextEditor.h"
+#include "portable-file-dialogs.h" // <--- NOWE: Obsługa okienek
 #include <GLFW/glfw3.h>
 
-// --- NOWE BIBLIOTEKI ---
 #include <iostream>
-#include <fstream>  // Do zapisu plików
+#include <fstream>
 #include <string>
-#include <sstream>  // Do łączenia tekstów
-#include <array>    // Do bufora kompilatora
-#include <cstdio>   // Do _popen (uruchamianie procesów)
-// -----------------------
-// 1. Funkcja do zapisu tekstu do pliku
+#include <sstream>
+#include <array>
+#include <cstdio>
+#include <memory> // do unique_ptr
+
+static void glfw_error_callback(int error, const char* description) {
+    fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+}
+
 void SaveFile(const std::string& filename, const std::string& text) {
     std::ofstream out(filename);
     out << text;
     out.close();
 }
 
-// 2. Funkcja do odczytu pliku
 std::string OpenFile(const std::string& filename) {
     std::ifstream in(filename);
     if (in) {
@@ -30,23 +33,15 @@ std::string OpenFile(const std::string& filename) {
     return "";
 }
 
-// 3. Funkcja uruchamiająca komendę (np. g++) i zwracająca to, co ona wypisze
 std::string ExecCommand(const char* cmd) {
     std::array<char, 128> buffer;
     std::string result;
-    // _popen otwiera "rurę" do procesu. Na Linuxie byłoby to popen.
     std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd, "r"), _pclose);
-    if (!pipe) {
-        return "popen() failed!";
-    }
+    if (!pipe) return "popen() failed!";
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
         result += buffer.data();
     }
     return result;
-}
-
-static void glfw_error_callback(int error, const char* description) {
-    fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
 int main(int, char**) {
@@ -69,20 +64,16 @@ int main(int, char**) {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; 
 
     ImGui::StyleColorsDark();
-
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    // --- NOWE: Konfiguracja Edytora ---
     TextEditor editor;
-    auto lang = TextEditor::LanguageDefinition::CPlusPlus();
-    editor.SetLanguageDefinition(lang);
-    
-    // Wpiszmy jakiś przykładowy kod na start
-    editor.SetText("int main() {\n\treturn 0;\n}"); 
+    editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
+    editor.SetText("// Witaj w Fin!\n// Wybierz Plik -> Otworz, aby zaczac.");
 
-    // Zmienna przechowująca wynik kompilacji (błędy lub sukces)
-    std::string compilationOutput = "Gotowy do pracy...";
+    // --- ZMIENNE STANU ---
+    std::string compilationOutput = "Gotowy.";
+    std::string currentFile = ""; // Pamiętamy ścieżkę otwartego pliku
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -91,39 +82,63 @@ int main(int, char**) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // 1. DOCKSPACE (Musi być na początku)
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-        // 2. GÓRNE MENU (File, Build)
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("Plik")) {
-                if (ImGui::MenuItem("Zapisz", "Ctrl+S")) {
-                    SaveFile("kod.cpp", editor.GetText());
-                    compilationOutput = "Zapisano plik: kod.cpp";
+                
+                // --- OPCJA: OTWÓRZ ---
+                if (ImGui::MenuItem("Otworz", "Ctrl+O")) {
+                    // Wywołujemy okienko Windowsa
+                    auto selection = pfd::open_file("Wybierz plik C++", ".",
+                                                    { "Pliki C++", "*.cpp *.h", "Wszystkie pliki", "*" }).result();
+                    
+                    if (!selection.empty()) {
+                        currentFile = selection[0]; // Bierzemy pierwszy wybrany plik
+                        editor.SetText(OpenFile(currentFile));
+                        compilationOutput = "Otwarto: " + currentFile;
+                    }
                 }
-                if (ImGui::MenuItem("Otwórz", "Ctrl+O")) {
-                    std::string content = OpenFile("kod.cpp");
-                    editor.SetText(content);
-                    compilationOutput = "Wczytano plik: kod.cpp";
+
+                // --- OPCJA: ZAPISZ ---
+                if (ImGui::MenuItem("Zapisz", "Ctrl+S")) {
+                    if (currentFile.empty()) {
+                        // Jeśli nie ma pliku, wywołaj "Zapisz Jako"
+                        auto dest = pfd::save_file("Zapisz plik jako...", ".",
+                                                   { "Pliki C++", "*.cpp" }).result();
+                        if (!dest.empty()) currentFile = dest;
+                    }
+                    
+                    if (!currentFile.empty()) {
+                        SaveFile(currentFile, editor.GetText());
+                        compilationOutput = "Zapisano: " + currentFile;
+                    }
                 }
                 ImGui::EndMenu();
             }
+
             if (ImGui::BeginMenu("Buduj")) {
                 if (ImGui::MenuItem("Kompiluj i Uruchom", "F5")) {
-                    // A. Zapisz aktualny kod
-                    SaveFile("kod.cpp", editor.GetText());
-                    
-                    // B. Uruchom g++
-                    // 2>&1 oznacza "przekieruj błędy do standardowego wyjścia", żebyśmy je widzieli
-                    compilationOutput = "Kompilacja...\n";
-                    std::string buildResult = ExecCommand("g++ kod.cpp -o program.exe 2>&1");
-                    
-                    if (buildResult.empty()) {
-                        compilationOutput += "Sukces! Uruchamianie...\n";
-                        // C. Jeśli brak błędów, uruchom program
-                        compilationOutput += ExecCommand("program.exe");
+                    if (currentFile.empty()) {
+                        compilationOutput = "Blad: Najpierw zapisz plik!";
                     } else {
-                        compilationOutput += "Blad kompilacji:\n" + buildResult;
+                        SaveFile(currentFile, editor.GetText());
+                        
+                        compilationOutput = "Kompilacja " + currentFile + "...\n";
+                        
+                        // Budujemy komendę: g++ "ścieżka/plik.cpp" -o "ścieżka/plik.exe"
+                        // Używamy cudzysłowów, żeby spacje w ścieżkach nie psuły komendy
+                        std::string exeName = currentFile + ".exe";
+                        std::string cmd = "g++ \"" + currentFile + "\" -o \"" + exeName + "\" 2>&1";
+                        
+                        std::string buildResult = ExecCommand(cmd.c_str());
+                        
+                        if (buildResult.empty()) {
+                            compilationOutput += "Sukces! Uruchamianie...\n----------------\n";
+                            compilationOutput += ExecCommand(("\"" + exeName + "\"").c_str());
+                        } else {
+                            compilationOutput += "Blad kompilacji:\n" + buildResult;
+                        }
                     }
                 }
                 ImGui::EndMenu();
@@ -131,20 +146,21 @@ int main(int, char**) {
             ImGui::EndMainMenuBar();
         }
 
-        // 3. OKNO EDYTORA
+        // --- TYTUŁ OKNA ---
+        // Wyświetlamy nazwę otwartego pliku na pasku tytułu
+        std::string title = "Fin - " + (currentFile.empty() ? "Bez tytulu" : currentFile);
+        glfwSetWindowTitle(window, title.c_str());
+
         ImGui::Begin("Kod Zrodlowy");
         editor.Render("CodeEditor");
         ImGui::End();
 
-        // 4. OKNO KONSOLI (Tu wyświetlimy wyniki)
         ImGui::Begin("Konsola Wyjscia");
         ImGui::TextWrapped("%s", compilationOutput.c_str());
-        // Automatyczne przewijanie do dołu, jeśli tekst jest długi
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
             ImGui::SetScrollHereY(1.0f);
         ImGui::End();
 
-        // Renderowanie
         ImGui::Render();
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
@@ -158,9 +174,7 @@ int main(int, char**) {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
     glfwDestroyWindow(window);
     glfwTerminate();
-
     return 0;
 }

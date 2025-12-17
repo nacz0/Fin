@@ -5,55 +5,54 @@ project(Fin LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Wyciszamy ostrzeżenie o FetchContent_Populate (dla świętego spokoju)
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)
+endif()
+
 include(FetchContent)
 
 # 1. GLFW
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw
-    GIT_TAG 3.3.8
-)
+FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw GIT_TAG 3.3.8)
 FetchContent_MakeAvailable(glfw)
 
-# 2. Dear ImGui (Docking)
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui
-    GIT_TAG docking
-)
+# 2. ImGui
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui GIT_TAG docking)
 FetchContent_MakeAvailable(imgui)
 
-# 3. ImGuiColorTextEdit (NOWOŚĆ: Edytor tekstu)
-FetchContent_Declare(
-    color_text_edit
-    GIT_REPOSITORY https://github.com/BalazsJako/ImGuiColorTextEdit
-    GIT_TAG master
-)
+# 3. TextEditor
+FetchContent_Declare(color_text_edit GIT_REPOSITORY https://github.com/BalazsJako/ImGuiColorTextEdit GIT_TAG master)
 FetchContent_MakeAvailable(color_text_edit)
+
+# 4. Portable File Dialogs (POPRAWIONE)
+FetchContent_Declare(
+    pfd 
+    GIT_REPOSITORY https://github.com/samhocevar/portable-file-dialogs 
+    GIT_TAG main  # <--- ZMIANA: 'master' na 'main'
+)
+# Ręczne pobieranie (bo biblioteka nie ma własnego CMakeLists.txt)
+FetchContent_GetProperties(pfd)
+if(NOT pfd_POPULATED)
+    FetchContent_Populate(pfd)
+endif()
 
 add_executable(Fin src/main.cpp)
 
-# Włączamy nagłówki (również dla edytora)
 target_include_directories(Fin PRIVATE 
     ${imgui_SOURCE_DIR} 
     ${imgui_SOURCE_DIR}/backends
-    ${color_text_edit_SOURCE_DIR} # <--- Tu szukamy TextEditor.h
+    ${color_text_edit_SOURCE_DIR}
+    ${pfd_SOURCE_DIR} 
 )
 
-# Źródła (Sources)
 target_sources(Fin PRIVATE
-    # Core ImGui
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    
-    # Backendy
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-
-    # Edytor Tekstu (NOWOŚĆ)
     ${color_text_edit_SOURCE_DIR}/TextEditor.cpp
 )
 
