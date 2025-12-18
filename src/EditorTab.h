@@ -12,6 +12,8 @@ struct EditorTab {
     bool showSearch = false;
     char searchBuf[256] = ""; 
     bool searchFocus = false; // Czy ustawić focus na pole tekstowe
+    int searchMatchCount = 0;
+    int searchMatchIndex = 0;
 
     EditorTab() {
         editor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());

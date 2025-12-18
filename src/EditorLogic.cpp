@@ -261,3 +261,30 @@ void FindPrev(TextEditor& editor, const std::string& query) {
         }
     }
 }
+
+void UpdateSearchInfo(TextEditor& editor, const std::string& query, int& outCount, int& outIndex) {
+    outCount = 0;
+    outIndex = 0;
+    if (query.empty()) return;
+
+    auto& lines = editor.GetTextLines();
+    auto cursorPos = editor.GetCursorPosition();
+
+    for (int i = 0; i < (int)lines.size(); ++i) {
+        size_t found = lines[i].find(query);
+        while (found != std::string::npos) {
+            outCount++;
+
+            // Sprawdzamy, czy kursor znajduje się w obrębie tego znaleziska
+            if (i == cursorPos.mLine) {
+                int start = (int)found;
+                int end = (int)(found + query.length());
+                if (cursorPos.mColumn >= start && cursorPos.mColumn <= end) {
+                    outIndex = outCount;
+                }
+            }
+
+            found = lines[i].find(query, found + 1);
+        }
+    }
+}

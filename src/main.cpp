@@ -236,7 +236,10 @@ int main(int, char**) {
                         // --- SKRÓTY KLAWIATUROWE DLA KARTY ---
                         if (actionSearch) {
                             tabs[i].showSearch = !tabs[i].showSearch;
-                            if (tabs[i].showSearch) tabs[i].searchFocus = true;
+                            if (tabs[i].showSearch) {
+                                tabs[i].searchFocus = true;
+                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                            }
                         }
 
                         // Obsługa F3 / Shift+F3 wewnątrz aktywnej karty
@@ -244,6 +247,7 @@ int main(int, char**) {
                             if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
                                 if (io.KeyShift) FindPrev(tabs[i].editor, tabs[i].searchBuf);
                                 else FindNext(tabs[i].editor, tabs[i].searchBuf);
+                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
                             }
                         }
 
@@ -264,13 +268,25 @@ int main(int, char**) {
                             if (ImGui::InputText("##searchField", tabs[i].searchBuf, 256, ImGuiInputTextFlags_EnterReturnsTrue)) {
                                 FindNext(tabs[i].editor, tabs[i].searchBuf);
                             }
+                            if (ImGui::IsItemEdited()) {
+                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                            }
                             ImGui::PopItemWidth();
                             
                             ImGui::SameLine();
-                            if (ImGui::Button("Poprzedni")) FindPrev(tabs[i].editor, tabs[i].searchBuf);
+                            ImGui::Text("%d z %d", tabs[i].searchMatchIndex, tabs[i].searchMatchCount);
+
+                            ImGui::SameLine();
+                            if (ImGui::Button("Poprzedni")) {
+                                FindPrev(tabs[i].editor, tabs[i].searchBuf);
+                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                            }
                             
                             ImGui::SameLine();
-                            if (ImGui::Button("Nastepny")) FindNext(tabs[i].editor, tabs[i].searchBuf);
+                            if (ImGui::Button("Nastepny")) {
+                                FindNext(tabs[i].editor, tabs[i].searchBuf);
+                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                            }
                             
                             ImGui::SameLine();
                             ImGui::TextDisabled("(F3 / Shift+F3)");
