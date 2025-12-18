@@ -11,13 +11,16 @@
 #include "EditorLogic.h" // Nawiasy, Enter, Backspace, FindNext
 #include "Compiler.h"    // Parsowanie błędów GCC
 #include "ThemeManager.h"
+#include "LSPClient.h"
+#include <mutex>
 // ---------------------------
 
 #include <iostream>
 #include <vector>
 #include <filesystem>
-#include <future>
 #include <chrono>
+#include <algorithm>
+#include <map>
 
 namespace fs = std::filesystem;
 
@@ -27,7 +30,7 @@ static void glfw_error_callback(int error, const char* description) {
 
 // --- MODULAR UI FUNCTIONS ---
 
-void ShowMainMenuBar(AppConfig& config, std::vector<EditorTab>& tabs, int activeTab, fs::path& currentPath, int& nextTabToFocus, bool& actionNew, bool& actionOpen, bool& actionSave, bool& actionCloseTab, bool& actionSearch, bool& actionBuild) {
+void ShowMainMenuBar(LSPClient& lsp, AppConfig& config, std::vector<std::unique_ptr<EditorTab>>& tabs, int activeTab, fs::path& currentPath, int& nextTabToFocus, bool& actionNew, bool& actionOpen, bool& actionSave, bool& actionCloseTab, bool& actionSearch, bool& actionBuild) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Plik")) {
             if (ImGui::MenuItem("Nowy", "Ctrl+N")) actionNew = true;
@@ -66,7 +69,7 @@ void ShowMainMenuBar(AppConfig& config, std::vector<EditorTab>& tabs, int active
     }
 }
 
-void ShowExplorer(AppConfig& config, fs::path& currentPath, std::vector<EditorTab>& tabs, int& nextTabToFocus, float textScale, ImGuiIO& io) {
+void ShowExplorer(LSPClient& lsp, AppConfig& config, fs::path& currentPath, std::vector<std::unique_ptr<EditorTab>>& tabs, int& nextTabToFocus, float textScale, ImGuiIO& io) {
     ImGui::Begin("Eksplorator");
     if (ImGui::Button(".. (W gore)") || (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Backspace))) {
          fs::path absolutePath = fs::absolute(currentPath);
@@ -88,11 +91,19 @@ void ShowExplorer(AppConfig& config, fs::path& currentPath, std::vector<EditorTa
                 if (ext == ".exe" || ext == ".bin") ImGui::TextDisabled("  %s [BIN]", name.c_str());
                 else if (ImGui::Selectable(("  " + name).c_str())) {
                     std::string p = e.path().string(); bool open = false;
-                    for(int i=0; i<tabs.size(); i++) if(tabs[i].path == p) { nextTabToFocus = i; open = true; break; }
+                    for(int i=0; i<tabs.size(); i++) {
+                        if(tabs[i]->path == p) {
+                            nextTabToFocus = i;
+                            open = true;
+                            break;
+                        }
+                    }
                     if(!open) {
-                        EditorTab nt; nt.name = name; nt.path = p; nt.editor.SetText(OpenFile(p));
-                        ThemeManager::ApplyTheme(config.theme, nt); // Use apply logic for single tab
-                        tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
+                        auto nt = std::make_unique<EditorTab>(); 
+                        nt->name = name; nt->path = p; nt->editor.SetText(OpenFile(p));
+                        ThemeManager::ApplyTheme(config.theme, *nt);
+                        lsp.DidOpen(p, nt->editor.GetText());
+                        tabs.push_back(std::move(nt)); nextTabToFocus = tabs.size()-1;
                     }
                 }
             }
@@ -101,7 +112,7 @@ void ShowExplorer(AppConfig& config, fs::path& currentPath, std::vector<EditorTa
     ImGui::End();
 }
 
-void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::vector<ParsedError>& errorList, std::vector<EditorTab>& tabs, int& nextTabToFocus) {
+void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::vector<ParsedError>& errorList, std::vector<std::unique_ptr<EditorTab>>& tabs, int& nextTabToFocus) {
     ImGui::Begin("Konsola Wyjscia");
     if (isCompiling) ImGui::TextColored(ImVec4(1, 1, 0, 1), "KOMPILACJA...");
     if (errorList.empty()) ImGui::TextWrapped("%s", compilationOutput.c_str());
@@ -112,8 +123,12 @@ void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::ve
                 ImGui::PushStyleColor(ImGuiCol_Text, err.isError ? ImVec4(1,0.4,0.4,1) : ImVec4(1,1,0.4,1));
                 if (ImGui::Selectable((err.filename + ":" + std::to_string(err.line) + " " + err.message).c_str())) {
                     for(int i=0; i<tabs.size(); i++) {
-                        if(fs::path(tabs[i].path).filename() == fs::path(err.filename).filename()) {
-                            nextTabToFocus = i; tabs[i].editor.SetCursorPosition(TextEditor::Coordinates(err.line-1, 0)); break;
+                        if(fs::path(tabs[i]->path).filename() == fs::path(err.filename).filename()) {
+                            nextTabToFocus = i;
+                            if (err.line > 0) {
+                                tabs[i]->editor.SetCursorPosition(TextEditor::Coordinates(err.line-1, 0));
+                            }
+                            break;
                         }
                     }
                 }
@@ -123,6 +138,34 @@ void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::ve
     }
     ImGui::End();
 }
+
+void RenderAutocompletePopup(EditorTab& tab, float textScale) {
+    if (!tab.acState->show || tab.acState->items.empty()) {
+        return;
+    }
+    
+    std::cout << "[UI] Rendering autocomplete popup with " << tab.acState->items.size() << " items" << std::endl;
+    
+    // Position the popup at the current cursor screen position
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    pos.y += ImGui::GetTextLineHeightWithSpacing();
+
+    ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+    
+    // Usuwamy NoInputs i Tooltip, aby myszka działała. Używamy NoFocusOnAppearing aby nie zabierać focusu edytorowi.
+    if (ImGui::Begin("Autocomplete", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing)) {
+        for (int i = 0; i < (int)tab.acState->items.size(); i++) {
+            bool selected = (i == tab.acState->selectedIndex);
+            if (ImGui::Selectable(tab.acState->items[i].label.c_str(), selected)) {
+                tab.editor.InsertText(tab.acState->items[i].insertText);
+                tab.acState->show = false;
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::End();
+    }
+}
+
 
 int main(int, char**) {
     if (!glfwInit()) return 1;
@@ -142,6 +185,15 @@ int main(int, char**) {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    
+    // --- INICJALIZACJA LSP ---
+    LSPClient lsp;
+    std::mutex diagMutex;
+    if (lsp.Start()) {
+        lsp.Initialize(fs::current_path().string());
+    } else {
+        std::cerr << "BLAD: Nie udalo sie uruchomic clangd! Upewnij sie, ze jest w PATH." << std::endl;
+    }
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; 
 
@@ -156,8 +208,18 @@ int main(int, char**) {
     // Zastosuj zapisany motyw globalnie
     ApplyGlobalTheme(config.theme);
 
+    std::map<std::string, std::vector<LSPDiagnostic>> pendingDiags;
+
+    lsp.SetDiagnosticsCallback([&](const std::string& uri, const std::vector<LSPDiagnostic>& diags) {
+        std::lock_guard<std::mutex> lock(diagMutex);
+        std::string path = uri;
+        if (path.find("file:///") == 0) path = path.substr(8);
+        std::replace(path.begin(), path.end(), '/', '\\');
+        pendingDiags[path] = diags;
+    });
+
     // Zmienne stanu
-    std::vector<EditorTab> tabs;
+    std::vector<std::unique_ptr<EditorTab>> tabs;
     int activeTab = -1;
     int nextTabToFocus = -1;
     float textScale = config.zoom;
@@ -171,15 +233,16 @@ int main(int, char**) {
     fs::path currentPath = fs::exists(config.lastDirectory) ? config.lastDirectory : fs::current_path();
     for (const auto& filePath : config.openFiles) {
         if (fs::exists(filePath)) {
-            EditorTab nt;
-            nt.name = fs::path(filePath).filename().string();
-            nt.path = filePath;
-            nt.editor.SetText(OpenFile(filePath));
+            auto nt = std::make_unique<EditorTab>();
+            nt->name = fs::path(filePath).filename().string();
+            nt->path = filePath;
+            nt->editor.SetText(OpenFile(filePath));
             
             // Aplikacja zapisanego motywu
-            ThemeManager::ApplyTheme(config.theme, nt);
+            ThemeManager::ApplyTheme(config.theme, *nt);
 
-            tabs.push_back(nt);
+            lsp.DidOpen(filePath, nt->editor.GetText());
+            tabs.push_back(std::move(nt));
         }
     }
     if (config.activeTabIndex >= 0 && config.activeTabIndex < (int)tabs.size()) {
@@ -203,6 +266,27 @@ int main(int, char**) {
         }
         io.FontGlobalScale = textScale;
 
+        // --- ZASTOSOWANIE OCZEKUJĄCYCH DIAGNOSTYK LSP ---
+        {
+            std::lock_guard<std::mutex> lock(diagMutex);
+            if (!pendingDiags.empty()) {
+                for (auto const& [path, diags] : pendingDiags) {
+                    for (auto& t : tabs) {
+                        if (fs::path(t->path).lexically_normal() == fs::path(path).lexically_normal()) {
+                            t->lspDiagnostics.clear();
+                            TextEditor::ErrorMarkers markers;
+                            for (auto& d : diags) {
+                                t->lspDiagnostics.push_back({ d.line, d.message, d.severity });
+                                markers[d.line + 1] = d.message;
+                            }
+                            t->editor.SetErrorMarkers(markers);
+                        }
+                    }
+                }
+                pendingDiags.clear();
+            }
+        }
+
         // Bezpiecznik indeksów
         if (tabs.empty()) activeTab = -1;
         else {
@@ -224,7 +308,7 @@ int main(int, char**) {
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_F)) actionSearch = true; // [NOWE]
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) actionBuild = true;
 
-        ShowMainMenuBar(config, tabs, activeTab, currentPath, nextTabToFocus, actionNew, actionOpen, actionSave, actionCloseTab, actionSearch, actionBuild);
+        ShowMainMenuBar(lsp, config, tabs, activeTab, currentPath, nextTabToFocus, actionNew, actionOpen, actionSave, actionCloseTab, actionSearch, actionBuild);
 
         // --- OBSŁUGA KOMPILACJI ---
         if (isCompiling && compilationTask.valid() && compilationTask.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -235,12 +319,13 @@ int main(int, char**) {
 
         // --- LOGIKA AKCJI ---
         if (actionNew) {
-            tabs.emplace_back();
-            tabs.back().name = "Bez tytulu";
+            auto nt = std::make_unique<EditorTab>();
+            nt->name = "Bez tytulu";
             
             // Aplikacja aktualnego motywu do nowej karty
-            ThemeManager::ApplyTheme(config.theme, tabs.back());
+            ThemeManager::ApplyTheme(config.theme, *nt);
 
+            tabs.push_back(std::move(nt));
             nextTabToFocus = tabs.size() - 1;
         }
         if (actionOpen) {
@@ -248,33 +333,35 @@ int main(int, char**) {
             if (!sel.empty()) {
                 std::string p = sel[0];
                 bool found = false;
-                for(int i=0; i<tabs.size(); i++) if(tabs[i].path == p) { nextTabToFocus = i; found = true; break; }
+                for(int i=0; i<tabs.size(); i++) if(tabs[i]->path == p) { nextTabToFocus = i; found = true; break; }
                 if(!found) {
-                    EditorTab nt; nt.name = fs::path(p).filename().string(); nt.path = p;
-                    nt.editor.SetText(OpenFile(p)); 
+                    auto nt = std::make_unique<EditorTab>();
+                    nt->name = fs::path(p).filename().string(); nt->path = p;
+                    nt->editor.SetText(OpenFile(p)); 
                     
                     // Aplikacja aktualnego motywu
-                    ThemeManager::ApplyTheme(config.theme, nt);
+                    ThemeManager::ApplyTheme(config.theme, *nt);
 
-                    tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
+                    lsp.DidOpen(p, nt->editor.GetText());
+                    tabs.push_back(std::move(nt)); nextTabToFocus = tabs.size()-1;
                 }
             }
         }
         if (actionSave && activeTab >= 0) {
             auto& t = tabs[activeTab];
-            if (t.path.empty()) {
+            if (t->path.empty()) {
                 auto d = pfd::save_file("Zapisz", currentPath.string(), {"C++", "*.cpp"}).result();
-                if (!d.empty()) { t.path = d; t.name = fs::path(d).filename().string(); }
+                if (!d.empty()) { t->path = d; t->name = fs::path(d).filename().string(); }
             }
-            if (!t.path.empty()) { SaveFile(t.path, t.editor.GetText()); compilationOutput = "Zapisano: " + t.name; }
+            if (!t->path.empty()) { SaveFile(t->path, t->editor.GetText()); compilationOutput = "Zapisano: " + t->name; }
         }
-        if (actionCloseTab && activeTab >= 0) tabs[activeTab].isOpen = false;
+        if (actionCloseTab && activeTab >= 0) tabs[activeTab]->isOpen = false;
         
         if (actionBuild && !isCompiling && activeTab >= 0) {
             auto& t = tabs[activeTab];
-            if (!t.path.empty()) {
-                SaveFile(t.path, t.editor.GetText()); isCompiling = true;
-                std::string p = t.path, exe = p + ".exe", cmd = "g++ \"" + p + "\" -o \"" + exe + "\" 2>&1";
+            if (!t->path.empty()) {
+                SaveFile(t->path, t->editor.GetText()); isCompiling = true;
+                std::string p = t->path, exe = p + ".exe", cmd = "g++ \"" + p + "\" -o \"" + exe + "\" 2>&1";
                 compilationTask = std::async(std::launch::async, [cmd, exe]() {
                     std::string r = ExecCommand(cmd.c_str());
                     return r.empty() ? "Sukces!\n---\n" + ExecCommand(("\""+exe+"\"").c_str()) : "Blad:\n" + r;
@@ -285,7 +372,7 @@ int main(int, char**) {
         // --- INTERFEJS ---
         
         // 1. EKSPLORATOR
-        ShowExplorer(config, currentPath, tabs, nextTabToFocus, textScale, io);
+        ShowExplorer(lsp, config, currentPath, tabs, nextTabToFocus, textScale, io);
 
         // 2. EDYTOR
         ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar);
@@ -294,8 +381,8 @@ int main(int, char**) {
         } else {
             if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs)) {
                 for (int i = 0; i < (int)tabs.size(); i++) {
-                    bool open = true;
-                    std::string label = tabs[i].name + "##" + std::to_string(i);
+                    bool open = tabs[i]->isOpen;
+                    std::string label = tabs[i]->name + "##" + std::to_string(i);
                     ImGuiTabItemFlags f = (nextTabToFocus == i) ? ImGuiTabItemFlags_SetSelected : 0;
 
                     if (ImGui::BeginTabItem(label.c_str(), &open, f)) {
@@ -304,64 +391,64 @@ int main(int, char**) {
 
                         // --- SKRÓTY KLAWIATUROWE DLA KARTY ---
                         if (actionSearch) {
-                            tabs[i].showSearch = !tabs[i].showSearch;
-                            if (tabs[i].showSearch) {
-                                tabs[i].searchFocus = true;
-                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                            tabs[i]->showSearch = !tabs[i]->showSearch;
+                            if (tabs[i]->showSearch) {
+                                tabs[i]->searchFocus = true;
+                                UpdateSearchInfo(tabs[i]->editor, tabs[i]->searchBuf, tabs[i]->searchMatchCount, tabs[i]->searchMatchIndex);
                             }
                         }
 
                         // Obsługa F3 / Shift+F3 wewnątrz aktywnej karty
-                        if (tabs[i].showSearch && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+                        if (tabs[i]->showSearch && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
                             if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
-                                if (io.KeyShift) FindPrev(tabs[i].editor, tabs[i].searchBuf);
-                                else FindNext(tabs[i].editor, tabs[i].searchBuf);
-                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                                if (io.KeyShift) FindPrev(tabs[i]->editor, tabs[i]->searchBuf);
+                                else FindNext(tabs[i]->editor, tabs[i]->searchBuf);
+                                UpdateSearchInfo(tabs[i]->editor, tabs[i]->searchBuf, tabs[i]->searchMatchCount, tabs[i]->searchMatchIndex);
                             }
                         }
 
                         // --- PASEK WYSZUKIWANIA (UI) ---
-                        if (tabs[i].showSearch) {
+                        if (tabs[i]->showSearch) {
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
                             ImGui::BeginChild("SearchBar", ImVec2(0, 38 * textScale), true);
                             
                             ImGui::AlignTextToFramePadding();
                             ImGui::Text("Szukaj:"); ImGui::SameLine();
                             
-                            if (tabs[i].searchFocus) { 
+                            if (tabs[i]->searchFocus) { 
                                 ImGui::SetKeyboardFocusHere(); 
-                                tabs[i].searchFocus = false; 
+                                tabs[i]->searchFocus = false; 
                             }
                             
                             ImGui::PushItemWidth(250 * textScale);
-                            if (ImGui::InputText("##searchField", tabs[i].searchBuf, 256, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                                FindNext(tabs[i].editor, tabs[i].searchBuf);
+                            if (ImGui::InputText("##searchField", tabs[i]->searchBuf, 256, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                                FindNext(tabs[i]->editor, tabs[i]->searchBuf);
                             }
                             if (ImGui::IsItemEdited()) {
-                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                                UpdateSearchInfo(tabs[i]->editor, tabs[i]->searchBuf, tabs[i]->searchMatchCount, tabs[i]->searchMatchIndex);
                             }
                             ImGui::PopItemWidth();
                             
                             ImGui::SameLine();
-                            ImGui::Text("%d z %d", tabs[i].searchMatchIndex, tabs[i].searchMatchCount);
+                            ImGui::Text("%d z %d", tabs[i]->searchMatchIndex, tabs[i]->searchMatchCount);
 
                             ImGui::SameLine();
                             if (ImGui::Button("Poprzedni")) {
-                                FindPrev(tabs[i].editor, tabs[i].searchBuf);
-                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                                FindPrev(tabs[i]->editor, tabs[i]->searchBuf);
+                                UpdateSearchInfo(tabs[i]->editor, tabs[i]->searchBuf, tabs[i]->searchMatchCount, tabs[i]->searchMatchIndex);
                             }
                             
                             ImGui::SameLine();
                             if (ImGui::Button("Nastepny")) {
-                                FindNext(tabs[i].editor, tabs[i].searchBuf);
-                                UpdateSearchInfo(tabs[i].editor, tabs[i].searchBuf, tabs[i].searchMatchCount, tabs[i].searchMatchIndex);
+                                FindNext(tabs[i]->editor, tabs[i]->searchBuf);
+                                UpdateSearchInfo(tabs[i]->editor, tabs[i]->searchBuf, tabs[i]->searchMatchCount, tabs[i]->searchMatchIndex);
                             }
                             
                             ImGui::SameLine();
                             ImGui::TextDisabled("(F3 / Shift+F3)");
 
                             ImGui::SameLine(ImGui::GetWindowWidth() - 30 * textScale);
-                            if (ImGui::Button("X")) { tabs[i].showSearch = false; }
+                            if (ImGui::Button("X")) { tabs[i]->showSearch = false; }
                             
                             ImGui::EndChild();
                             ImGui::PopStyleColor();
@@ -372,33 +459,43 @@ int main(int, char**) {
                         
                         // Logika przed renderem (Backspace, Auto-domykanie)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-                            HandlePreRenderLogic(tabs[i].editor);
+                            HandlePreRenderLogic(tabs[i]->editor);
+                            HandleAutocompleteLogic(*tabs[i], lsp);
                         }
                             
                         // Główny komponent edytora
-                        tabs[i].editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
+                        tabs[i]->editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
+
+                        // --- AUTOUZUPEŁNIANIE UI ---
+                        if (tabs[i]->acState->show) {
+                            RenderAutocompletePopup(*tabs[i], textScale);
+                        }
+
+                        if (tabs[i]->editor.IsTextChanged()) {
+                            lsp.DidChange(tabs[i]->path, tabs[i]->editor.GetText());
+                        }
 
                         // Logika po renderze (Smart Enter)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-                            HandlePostRenderLogic(tabs[i].editor);
+                            HandlePostRenderLogic(tabs[i]->editor);
                         }
 
                         // Pasek statusu na dole karty
                         ImGui::Separator();
-                        auto c = tabs[i].editor.GetCursorPosition();
+                        auto c = tabs[i]->editor.GetCursorPosition();
                         ImGui::Text("Linia %d, Kolumna %d | Ogolem: %d linii | Skala: %.1fx", 
-                            c.mLine + 1, c.mColumn + 1, tabs[i].editor.GetTotalLines(), textScale);
+                            c.mLine + 1, c.mColumn + 1, tabs[i]->editor.GetTotalLines(), textScale);
                         
                         ImGui::EndTabItem();
                     }
-                    if (!open) tabs[i].isOpen = false;
+                    tabs[i]->isOpen = open; // Update the tab's open state
                 }
                 ImGui::EndTabBar();
             }
 
             // Usuwanie kart oznaczonych jako zamknięte
             for (int i = 0; i < (int)tabs.size(); ) {
-                if (!tabs[i].isOpen) { 
+                if (!tabs[i]->isOpen) { 
                     tabs.erase(tabs.begin() + i); 
                     if (activeTab >= i && activeTab > 0) activeTab--; 
                 } else {
@@ -422,7 +519,7 @@ int main(int, char**) {
     int w, h; glfwGetWindowSize(window, &w, &h);
     config.windowWidth = w; config.windowHeight = h; config.zoom = textScale; config.lastDirectory = currentPath.string();
     config.openFiles.clear();
-    for(const auto& t : tabs) if(!t.path.empty()) config.openFiles.push_back(t.path);
+    for(const auto& t : tabs) if(!t->path.empty()) config.openFiles.push_back(t->path);
     config.activeTabIndex = activeTab;
     SaveConfig(config);
 

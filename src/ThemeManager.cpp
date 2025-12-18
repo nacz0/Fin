@@ -1,7 +1,7 @@
 #include "ThemeManager.h"
 #include "EditorLogic.h"
 
-void ThemeManager::ApplyTheme(int themeIndex, std::vector<EditorTab>& tabs) {
+void ThemeManager::ApplyTheme(int themeIndex, std::vector<std::unique_ptr<EditorTab>>& tabs) {
     ApplyGlobalTheme(themeIndex);
     
     const TextEditor::Palette* palette = &TextEditor::GetDarkPalette();
@@ -9,7 +9,7 @@ void ThemeManager::ApplyTheme(int themeIndex, std::vector<EditorTab>& tabs) {
     else if (themeIndex == 2) palette = &TextEditor::GetRetroBluePalette();
     
     for (auto& t : tabs) {
-        ApplyTheme(themeIndex, t);
+        ApplyTheme(themeIndex, *t);
     }
 }
 

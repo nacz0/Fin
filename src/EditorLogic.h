@@ -12,3 +12,8 @@ void FindNext(TextEditor& editor, const std::string& query);
 void FindPrev(TextEditor& editor, const std::string& query);
 void UpdateSearchInfo(TextEditor& editor, const std::string& query, int& outCount, int& outIndex);
 void ApplyGlobalTheme(int themeIndex);
+
+// Autouzupełnianie
+struct EditorTab;
+class LSPClient;
+void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp);

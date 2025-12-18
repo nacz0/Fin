@@ -30,7 +30,11 @@ if(NOT color_text_edit_POPULATED)
     FetchContent_Populate(color_text_edit)
 endif()
 
-# 4. Portable File Dialogs (POPRAWIONE)
+# 4. JSON for LSP (Single Header)
+FetchContent_Declare(json_hpp URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp DOWNLOAD_NO_EXTRACT TRUE)
+FetchContent_MakeAvailable(json_hpp)
+
+# 5. Portable File Dialogs (POPRAWIONE)
 FetchContent_Declare(
     pfd 
     GIT_REPOSITORY https://github.com/samhocevar/portable-file-dialogs 
@@ -48,6 +52,7 @@ add_executable(Fin
     src/EditorLogic.cpp
     src/Compiler.cpp
     src/ThemeManager.cpp
+    src/LSPClient.cpp
 )
 
 target_include_directories(Fin PRIVATE 
@@ -55,6 +60,7 @@ target_include_directories(Fin PRIVATE
     ${imgui_SOURCE_DIR}/backends
     ${color_text_edit_SOURCE_DIR}
     ${pfd_SOURCE_DIR} 
+    ${json_hpp_SOURCE_DIR}
 )
 
 target_sources(Fin PRIVATE
