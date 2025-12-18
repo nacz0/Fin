@@ -6,6 +6,54 @@
 #include <memory>
 #include <iostream>
 
+const char* CONFIG_FILE = "fin.ini";
+
+void SaveConfig(const AppConfig& config) {
+    std::ofstream out(CONFIG_FILE);
+    if (out.is_open()) {
+        out << "dir=" << config.lastDirectory << "\n";
+        out << "zoom=" << config.zoom << "\n";
+        out << "width=" << config.windowWidth << "\n";
+        out << "height=" << config.windowHeight << "\n";
+        out << "activeTab=" << config.activeTabIndex << "\n";
+        
+        // Zapisujemy każdą ścieżkę w nowej linii
+        for (const auto& path : config.openFiles) {
+            if (!path.empty()) {
+                out << "file=" << path << "\n";
+            }
+        }
+        out.close();
+    }
+}
+
+AppConfig LoadConfig() {
+    AppConfig config;
+    config.lastDirectory = ".";
+    config.activeTabIndex = -1;
+
+    std::ifstream in(CONFIG_FILE);
+    if (in.is_open()) {
+        std::string line;
+        while (std::getline(in, line)) {
+            size_t sep = line.find('=');
+            if (sep != std::string::npos) {
+                std::string key = line.substr(0, sep);
+                std::string value = line.substr(sep + 1);
+
+                if (key == "dir") config.lastDirectory = value;
+                else if (key == "zoom") config.zoom = std::stof(value);
+                else if (key == "width") config.windowWidth = std::stoi(value);
+                else if (key == "height") config.windowHeight = std::stoi(value);
+                else if (key == "activeTab") config.activeTabIndex = std::stoi(value);
+                else if (key == "file") config.openFiles.push_back(value); // Dodajemy ścieżkę do listy
+            }
+        }
+        in.close();
+    }
+    return config;
+}
+
 void SaveFile(const std::string& filename, const std::string& text) {
     std::ofstream out(filename);
     out << text;
