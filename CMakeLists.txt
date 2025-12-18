@@ -39,6 +39,8 @@ endif()
 add_executable(Fin 
     src/main.cpp 
     src/Utils.cpp
+    src/EditorLogic.cpp
+    src/Compiler.cpp
 )
 
 target_include_directories(Fin PRIVATE 
