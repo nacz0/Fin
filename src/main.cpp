@@ -56,6 +56,32 @@ std::vector<ParsedError> ParseCompilerOutput(const std::string& output) {
     return errors;
 }
 
+void HandleAutoClosing(TextEditor& editor) {
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // Sprawdzamy, czy w tej klatce użytkownik coś wpisał
+    for (int n = 0; n < io.InputQueueCharacters.Size; n++) {
+        unsigned int c = io.InputQueueCharacters[n];
+        
+        char closingChar = 0;
+        if (c == '(') closingChar = ')';
+        else if (c == '{') closingChar = '}';
+        else if (c == '[') closingChar = ']';
+        else if (c == '"') closingChar = '"';
+        else if (c == '\'') closingChar = '\'';
+
+        if (closingChar != 0) {
+            // Wstawiamy znak domykający
+            editor.InsertText(std::string(1, closingChar));
+            
+            // Musimy cofnąć kursor o jeden znak, żeby pisać MIĘDZY nawiasami
+            auto pos = editor.GetCursorPosition();
+            if (pos.mColumn > 0) {
+                editor.SetCursorPosition({ pos.mLine, pos.mColumn - 1 });
+            }
+        }
+    }
+}
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -259,30 +285,40 @@ int main(int, char**) {
             if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs)) {
                 for (int i = 0; i < (int)tabs.size(); i++) {
                     bool open = true;
-                    ImGuiTabItemFlags f = 0;
                     
-                    // Jeśli to jest karta, którą chcemy aktywować
+                    // --- TUTAJ DEFINIUJEMY label (naprawa błędu C2065) ---
+                    std::string label = tabs[i].name + "##" + std::to_string(i);
+                    
+                    ImGuiTabItemFlags f = 0;
                     if (nextTabToFocus == i) {
                         f |= ImGuiTabItemFlags_SetSelected;
-                        // NIE resetujemy nextTabToFocus tutaj!
                     }
 
-                    if (ImGui::BeginTabItem((tabs[i].name + "##" + std::to_string(i)).c_str(), &open, f)) {
+                    if (ImGui::BeginTabItem(label.c_str(), &open, f)) {
                         activeTab = i;
-                        
-                        // Dopiero gdy ImGui potwierdzi, że ta karta JEST aktywna, resetujemy rozkaz
                         if (nextTabToFocus == i) nextTabToFocus = -1;
 
+                        // --- AUTO-DOMYKANIE NAWIASÓW ---
+                        // Wywołujemy tylko dla aktywnego, sfokusowanego okna
+                        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+                            HandleAutoClosing(tabs[i].editor);
+                        }
+
                         ImVec2 avail = ImGui::GetContentRegionAvail();
+                        // Pamiętaj: rozmiar edytora musi uwzględniać pasek stanu na dole (30px)
                         tabs[i].editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
                         
-                        // Pasek stanu...
+                        // Pasek stanu
+                        ImGui::Separator();
+                        auto c = tabs[i].editor.GetCursorPosition();
+                        ImGui::Text("Ln %d, Col %d | %d Linii", c.mLine + 1, c.mColumn + 1, tabs[i].editor.GetTotalLines());
+                        
                         ImGui::EndTabItem();
                     }
                     if (!open) tabs[i].isOpen = false;
                 }
                 ImGui::EndTabBar();
-            }
+}
             for (int i = 0; i < tabs.size(); ) {
                 if (!tabs[i].isOpen) { tabs.erase(tabs.begin() + i); if (activeTab >= i && activeTab > 0) activeTab--; }
                 else i++;
