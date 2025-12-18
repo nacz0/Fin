@@ -125,7 +125,6 @@ void HandlePostRenderLogic(TextEditor& editor) {
 
 // --- NOWA, NIEZAWODNA LOGIKA WYSZUKIWANIA ---
 
-std::string g_SearchLog = "";
 
 void FindNext(TextEditor& editor, const std::string& query) {
     if (query.empty()) return;
@@ -133,9 +132,6 @@ void FindNext(TextEditor& editor, const std::string& query) {
     auto pos = editor.GetCursorPosition();
     auto& lines = editor.GetTextLines();
     int totalLines = (int)lines.size();
-
-    std::stringstream debug;
-    debug << "[DEBUG] Szukam: '" << query << "' | Start: Ln " << pos.mLine << ", Col " << pos.mColumn << "\n";
 
     // KROK 1: Sprawdź bieżącą linię od kursora w prawo
     if (pos.mLine < totalLines) {
@@ -146,12 +142,10 @@ void FindNext(TextEditor& editor, const std::string& query) {
         size_t found = currentLine.find(query, pos.mColumn);
         
         if (found != std::string::npos) {
-            debug << " -> Znaleziono w bieżącej linii na col: " << found << "\n";
             TextEditor::Coordinates sStart = {pos.mLine, (int)found};
             TextEditor::Coordinates sEnd = {pos.mLine, (int)(found + query.length())};
             editor.SetSelection(sStart, sEnd);
             editor.SetCursorPosition(sEnd); // Przesuń kursor na koniec, by następne "Szukaj" szukało DALEJ
-            g_SearchLog = debug.str();
             return;
         }
     }
@@ -160,18 +154,15 @@ void FindNext(TextEditor& editor, const std::string& query) {
     for (int i = pos.mLine + 1; i < totalLines; ++i) {
         size_t found = lines[i].find(query);
         if (found != std::string::npos) {
-            debug << " -> Znaleziono poniżej w linii: " << i << " na col: " << found << "\n";
             TextEditor::Coordinates sStart = { i, (int)found };
             TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
             editor.SetSelection(sStart, sEnd);
             editor.SetCursorPosition(sEnd);
-            g_SearchLog = debug.str();
             return;
         }
     }
 
     // KROK 3: Zawijanie - sprawdź od początku pliku (linia 0) do kursora
-    debug << " -> Nie znaleziono do końca pliku. Zawijam do linii 0...\n";
     for (int i = 0; i <= pos.mLine; ++i) {
         size_t found = std::string::npos;
         
@@ -184,18 +175,13 @@ void FindNext(TextEditor& editor, const std::string& query) {
         }
 
         if (found != std::string::npos) {
-            debug << " -> Znaleziono po zawinięciu w linii: " << i << " na col: " << found << "\n";
             TextEditor::Coordinates sStart = { i, (int)found };
             TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
             editor.SetSelection(sStart, sEnd);
             editor.SetCursorPosition(sEnd);
-            g_SearchLog = debug.str();
             return;
         }
     }
-
-    debug << " -> Brak wyników w całym pliku.\n";
-    g_SearchLog = debug.str();
 }
 
 void FindPrev(TextEditor& editor, const std::string& query) {
@@ -257,7 +243,6 @@ void FindPrev(TextEditor& editor, const std::string& query) {
             TextEditor::Coordinates sEnd = { pos.mLine, (int)(found + query.length()) };
             editor.SetSelection(sStart, sEnd);
             editor.SetCursorPosition(sStart);
-            return;
         }
     }
 }
@@ -286,5 +271,24 @@ void UpdateSearchInfo(TextEditor& editor, const std::string& query, int& outCoun
 
             found = lines[i].find(query, found + 1);
         }
+    }
+}
+
+void ApplyGlobalTheme(int themeIndex) {
+    if (themeIndex == 1) { // Jasny
+        ImGui::StyleColorsLight();
+    } else if (themeIndex == 2) { // Retro Blue
+        ImGui::StyleColorsDark();
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec4* colors = style.Colors;
+        colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.24f, 1.00f);
+        colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.28f, 1.00f);
+        colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.50f, 1.00f);
+        colors[ImGuiCol_TitleBgActive] = ImVec4(0.00f, 0.00f, 0.70f, 1.00f);
+        colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.80f, 1.00f);
+        colors[ImGuiCol_TabActive] = ImVec4(0.25f, 0.25f, 0.90f, 1.00f);
+    } else { // Ciemny
+        ImGui::StyleColorsDark();
     }
 }

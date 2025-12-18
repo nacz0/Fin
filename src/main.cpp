@@ -10,6 +10,7 @@
 #include "EditorTab.h"   // Struktura karty
 #include "EditorLogic.h" // Nawiasy, Enter, Backspace, FindNext
 #include "Compiler.h"    // Parsowanie błędów GCC
+#include "ThemeManager.h"
 // ---------------------------
 
 #include <iostream>
@@ -22,6 +23,105 @@ namespace fs = std::filesystem;
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+}
+
+// --- MODULAR UI FUNCTIONS ---
+
+void ShowMainMenuBar(AppConfig& config, std::vector<EditorTab>& tabs, int activeTab, fs::path& currentPath, int& nextTabToFocus, bool& actionNew, bool& actionOpen, bool& actionSave, bool& actionCloseTab, bool& actionSearch, bool& actionBuild) {
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("Plik")) {
+            if (ImGui::MenuItem("Nowy", "Ctrl+N")) actionNew = true;
+            if (ImGui::MenuItem("Otworz", "Ctrl+O")) actionOpen = true;
+            if (ImGui::MenuItem("Zapisz", "Ctrl+S")) actionSave = true;
+            if (ImGui::MenuItem("Zamknij Karte", "Ctrl+W")) actionCloseTab = true;
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edycja")) {
+            if (ImGui::MenuItem("Szukaj", "Ctrl+F")) actionSearch = true;
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Buduj")) {
+            if (ImGui::MenuItem("Kompiluj i Uruchom", "F5")) actionBuild = true;
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Widok")) {
+            if (ImGui::BeginMenu("Motyw")) {
+                if (ImGui::MenuItem("Ciemny", nullptr, config.theme == 0)) {
+                    config.theme = 0;
+                    ThemeManager::ApplyTheme(0, tabs);
+                }
+                if (ImGui::MenuItem("Jasny", nullptr, config.theme == 1)) {
+                    config.theme = 1;
+                    ThemeManager::ApplyTheme(1, tabs);
+                }
+                if (ImGui::MenuItem("Retro (Niebieski)", nullptr, config.theme == 2)) {
+                    config.theme = 2;
+                    ThemeManager::ApplyTheme(2, tabs);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+}
+
+void ShowExplorer(AppConfig& config, fs::path& currentPath, std::vector<EditorTab>& tabs, int& nextTabToFocus, float textScale, ImGuiIO& io) {
+    ImGui::Begin("Eksplorator");
+    if (ImGui::Button(".. (W gore)") || (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Backspace))) {
+         fs::path absolutePath = fs::absolute(currentPath);
+         if (absolutePath.has_parent_path()) {
+             fs::path parent = absolutePath.parent_path();
+             if (parent != absolutePath) currentPath = parent;
+         }
+    }
+    ImGui::Separator();
+    try {
+        for (auto& e : fs::directory_iterator(currentPath)) {
+            std::string name = e.path().filename().string();
+            if (e.is_directory()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255));
+                if (ImGui::Selectable(("[DIR] " + name).c_str())) currentPath = e.path();
+                ImGui::PopStyleColor();
+            } else {
+                std::string ext = e.path().extension().string();
+                if (ext == ".exe" || ext == ".bin") ImGui::TextDisabled("  %s [BIN]", name.c_str());
+                else if (ImGui::Selectable(("  " + name).c_str())) {
+                    std::string p = e.path().string(); bool open = false;
+                    for(int i=0; i<tabs.size(); i++) if(tabs[i].path == p) { nextTabToFocus = i; open = true; break; }
+                    if(!open) {
+                        EditorTab nt; nt.name = name; nt.path = p; nt.editor.SetText(OpenFile(p));
+                        ThemeManager::ApplyTheme(config.theme, nt); // Use apply logic for single tab
+                        tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
+                    }
+                }
+            }
+        }
+    } catch(...) {}
+    ImGui::End();
+}
+
+void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::vector<ParsedError>& errorList, std::vector<EditorTab>& tabs, int& nextTabToFocus) {
+    ImGui::Begin("Konsola Wyjscia");
+    if (isCompiling) ImGui::TextColored(ImVec4(1, 1, 0, 1), "KOMPILACJA...");
+    if (errorList.empty()) ImGui::TextWrapped("%s", compilationOutput.c_str());
+    else {
+        for (auto& err : errorList) {
+            if (err.line == 0) ImGui::TextWrapped("%s", err.fullMessage.c_str());
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Text, err.isError ? ImVec4(1,0.4,0.4,1) : ImVec4(1,1,0.4,1));
+                if (ImGui::Selectable((err.filename + ":" + std::to_string(err.line) + " " + err.message).c_str())) {
+                    for(int i=0; i<tabs.size(); i++) {
+                        if(fs::path(tabs[i].path).filename() == fs::path(err.filename).filename()) {
+                            nextTabToFocus = i; tabs[i].editor.SetCursorPosition(TextEditor::Coordinates(err.line-1, 0)); break;
+                        }
+                    }
+                }
+                ImGui::PopStyleColor();
+            }
+        }
+    }
+    ImGui::End();
 }
 
 int main(int, char**) {
@@ -52,6 +152,9 @@ int main(int, char**) {
     
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
+    
+    // Zastosuj zapisany motyw globalnie
+    ApplyGlobalTheme(config.theme);
 
     // Zmienne stanu
     std::vector<EditorTab> tabs;
@@ -72,6 +175,10 @@ int main(int, char**) {
             nt.name = fs::path(filePath).filename().string();
             nt.path = filePath;
             nt.editor.SetText(OpenFile(filePath));
+            
+            // Aplikacja zapisanego motywu
+            ThemeManager::ApplyTheme(config.theme, nt);
+
             tabs.push_back(nt);
         }
     }
@@ -117,24 +224,7 @@ int main(int, char**) {
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_F)) actionSearch = true; // [NOWE]
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) actionBuild = true;
 
-        if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("Plik")) {
-                if (ImGui::MenuItem("Nowy", "Ctrl+N")) actionNew = true;
-                if (ImGui::MenuItem("Otworz", "Ctrl+O")) actionOpen = true;
-                if (ImGui::MenuItem("Zapisz", "Ctrl+S")) actionSave = true;
-                if (ImGui::MenuItem("Zamknij Karte", "Ctrl+W")) actionCloseTab = true;
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Edycja")) {
-                if (ImGui::MenuItem("Szukaj", "Ctrl+F")) actionSearch = true;
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Buduj")) {
-                if (ImGui::MenuItem("Kompiluj i Uruchom", "F5")) actionBuild = true;
-                ImGui::EndMenu();
-            }
-            ImGui::EndMainMenuBar();
-        }
+        ShowMainMenuBar(config, tabs, activeTab, currentPath, nextTabToFocus, actionNew, actionOpen, actionSave, actionCloseTab, actionSearch, actionBuild);
 
         // --- OBSŁUGA KOMPILACJI ---
         if (isCompiling && compilationTask.valid() && compilationTask.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -147,6 +237,10 @@ int main(int, char**) {
         if (actionNew) {
             tabs.emplace_back();
             tabs.back().name = "Bez tytulu";
+            
+            // Aplikacja aktualnego motywu do nowej karty
+            ThemeManager::ApplyTheme(config.theme, tabs.back());
+
             nextTabToFocus = tabs.size() - 1;
         }
         if (actionOpen) {
@@ -157,7 +251,12 @@ int main(int, char**) {
                 for(int i=0; i<tabs.size(); i++) if(tabs[i].path == p) { nextTabToFocus = i; found = true; break; }
                 if(!found) {
                     EditorTab nt; nt.name = fs::path(p).filename().string(); nt.path = p;
-                    nt.editor.SetText(OpenFile(p)); tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
+                    nt.editor.SetText(OpenFile(p)); 
+                    
+                    // Aplikacja aktualnego motywu
+                    ThemeManager::ApplyTheme(config.theme, nt);
+
+                    tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
                 }
             }
         }
@@ -186,37 +285,7 @@ int main(int, char**) {
         // --- INTERFEJS ---
         
         // 1. EKSPLORATOR
-        ImGui::Begin("Eksplorator");
-        if (ImGui::Button(".. (W gore)") || (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Backspace))) {
-             fs::path absolutePath = fs::absolute(currentPath);
-             if (absolutePath.has_parent_path()) {
-                 fs::path parent = absolutePath.parent_path();
-                 if (parent != absolutePath) currentPath = parent;
-             }
-        }
-        ImGui::Separator();
-        try {
-            for (auto& e : fs::directory_iterator(currentPath)) {
-                std::string name = e.path().filename().string();
-                if (e.is_directory()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255));
-                    if (ImGui::Selectable(("[DIR] " + name).c_str())) currentPath = e.path();
-                    ImGui::PopStyleColor();
-                } else {
-                    std::string ext = e.path().extension().string();
-                    if (ext == ".exe" || ext == ".bin") ImGui::TextDisabled("  %s [BIN]", name.c_str());
-                    else if (ImGui::Selectable(("  " + name).c_str())) {
-                        std::string p = e.path().string(); bool open = false;
-                        for(int i=0; i<tabs.size(); i++) if(tabs[i].path == p) { nextTabToFocus = i; open = true; break; }
-                        if(!open) {
-                            EditorTab nt; nt.name = name; nt.path = p; nt.editor.SetText(OpenFile(p));
-                            tabs.push_back(nt); nextTabToFocus = tabs.size()-1;
-                        }
-                    }
-                }
-            }
-        } catch(...) {}
-        ImGui::End();
+        ShowExplorer(config, currentPath, tabs, nextTabToFocus, textScale, io);
 
         // 2. EDYTOR
         ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar);
@@ -339,31 +408,7 @@ int main(int, char**) {
         }
         ImGui::End();
         // 3. KONSOLA
-        ImGui::Begin("Konsola Wyjscia");
-        if (!g_SearchLog.empty()) {
-        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", g_SearchLog.c_str());
-        if (ImGui::Button("Wyczysc Logi Szukania")) g_SearchLog = "";
-        ImGui::Separator();
-        }
-        if (isCompiling) ImGui::TextColored(ImVec4(1, 1, 0, 1), "KOMPILACJA...");
-        if (errorList.empty()) ImGui::TextWrapped("%s", compilationOutput.c_str());
-        else {
-            for (auto& err : errorList) {
-                if (err.line == 0) ImGui::TextWrapped("%s", err.fullMessage.c_str());
-                else {
-                    ImGui::PushStyleColor(ImGuiCol_Text, err.isError ? ImVec4(1,0.4,0.4,1) : ImVec4(1,1,0.4,1));
-                    if (ImGui::Selectable((err.filename + ":" + std::to_string(err.line) + " " + err.message).c_str())) {
-                        for(int i=0; i<tabs.size(); i++) {
-                            if(fs::path(tabs[i].path).filename() == fs::path(err.filename).filename()) {
-                                nextTabToFocus = i; tabs[i].editor.SetCursorPosition(TextEditor::Coordinates(err.line-1, 0)); break;
-                            }
-                        }
-                    }
-                    ImGui::PopStyleColor();
-                }
-            }
-        }
-        ImGui::End();
+        ShowConsole(isCompiling, compilationOutput, errorList, tabs, nextTabToFocus);
 
         // Renderowanie klatki
         ImGui::Render();

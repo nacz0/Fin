@@ -47,6 +47,7 @@ add_executable(Fin
     src/Utils.cpp
     src/EditorLogic.cpp
     src/Compiler.cpp
+    src/ThemeManager.cpp
 )
 
 target_include_directories(Fin PRIVATE 

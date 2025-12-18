@@ -10,6 +10,7 @@ struct AppConfig {
 
     std::vector<std::string> openFiles; // Lista ścieżek do otwartych plików
     int activeTabIndex = -1; // Indeks aktywnej karty
+    int theme = 0;           // 0: Dark, 1: Light, 2: RetroBlue
 };
 
 void SaveConfig(const AppConfig& config);
