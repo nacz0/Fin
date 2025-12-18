@@ -18,11 +18,17 @@ FetchContent_MakeAvailable(glfw)
 
 # 2. ImGui
 FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui GIT_TAG docking)
-FetchContent_MakeAvailable(imgui)
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
 
 # 3. TextEditor
 FetchContent_Declare(color_text_edit GIT_REPOSITORY https://github.com/BalazsJako/ImGuiColorTextEdit GIT_TAG master)
-FetchContent_MakeAvailable(color_text_edit)
+FetchContent_GetProperties(color_text_edit)
+if(NOT color_text_edit_POPULATED)
+    FetchContent_Populate(color_text_edit)
+endif()
 
 # 4. Portable File Dialogs (POPRAWIONE)
 FetchContent_Declare(

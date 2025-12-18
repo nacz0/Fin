@@ -8,7 +8,7 @@
 // --- MODUŁY PROJEKTU FIN ---
 #include "Utils.h"       // Zapis/Odczyt, Config
 #include "EditorTab.h"   // Struktura karty
-#include "EditorLogic.h" // Nawiasy, Enter, Backspace
+#include "EditorLogic.h" // Nawiasy, Enter, Backspace, FindNext
 #include "Compiler.h"    // Parsowanie błędów GCC
 // ---------------------------
 
@@ -107,11 +107,14 @@ int main(int, char**) {
 
         // --- SKRÓTY I MENU ---
         bool actionNew = false, actionOpen = false, actionSave = false, actionBuild = false, actionCloseTab = false;
+        bool actionSearch = false; // [NOWE]
         bool ctrl = io.KeyCtrl;
+        
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_N)) actionNew = true;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_O)) actionOpen = true;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S)) actionSave = true;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_W)) actionCloseTab = true;
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_F)) actionSearch = true; // [NOWE]
         if (ImGui::IsKeyPressed(ImGuiKey_F5)) actionBuild = true;
 
         if (ImGui::BeginMainMenuBar()) {
@@ -120,6 +123,10 @@ int main(int, char**) {
                 if (ImGui::MenuItem("Otworz", "Ctrl+O")) actionOpen = true;
                 if (ImGui::MenuItem("Zapisz", "Ctrl+S")) actionSave = true;
                 if (ImGui::MenuItem("Zamknij Karte", "Ctrl+W")) actionCloseTab = true;
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Edycja")) {
+                if (ImGui::MenuItem("Szukaj", "Ctrl+F")) actionSearch = true;
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Buduj")) {
@@ -213,8 +220,9 @@ int main(int, char**) {
 
         // 2. EDYTOR
         ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar);
-        if (tabs.empty()) ImGui::TextDisabled("Brak plikow.");
-        else {
+        if (tabs.empty()) {
+            ImGui::TextDisabled("Brak otwartych plikow.");
+        } else {
             if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs)) {
                 for (int i = 0; i < (int)tabs.size(); i++) {
                     bool open = true;
@@ -225,40 +233,102 @@ int main(int, char**) {
                         activeTab = i;
                         if (nextTabToFocus == i) nextTabToFocus = -1;
 
+                        // --- SKRÓTY KLAWIATUROWE DLA KARTY ---
+                        if (actionSearch) {
+                            tabs[i].showSearch = !tabs[i].showSearch;
+                            if (tabs[i].showSearch) tabs[i].searchFocus = true;
+                        }
+
+                        // Obsługa F3 / Shift+F3 wewnątrz aktywnej karty
+                        if (tabs[i].showSearch && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+                            if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
+                                if (io.KeyShift) FindPrev(tabs[i].editor, tabs[i].searchBuf);
+                                else FindNext(tabs[i].editor, tabs[i].searchBuf);
+                            }
+                        }
+
+                        // --- PASEK WYSZUKIWANIA (UI) ---
+                        if (tabs[i].showSearch) {
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+                            ImGui::BeginChild("SearchBar", ImVec2(0, 38 * textScale), true);
+                            
+                            ImGui::AlignTextToFramePadding();
+                            ImGui::Text("Szukaj:"); ImGui::SameLine();
+                            
+                            if (tabs[i].searchFocus) { 
+                                ImGui::SetKeyboardFocusHere(); 
+                                tabs[i].searchFocus = false; 
+                            }
+                            
+                            ImGui::PushItemWidth(250 * textScale);
+                            if (ImGui::InputText("##searchField", tabs[i].searchBuf, 256, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                                FindNext(tabs[i].editor, tabs[i].searchBuf);
+                            }
+                            ImGui::PopItemWidth();
+                            
+                            ImGui::SameLine();
+                            if (ImGui::Button("Poprzedni")) FindPrev(tabs[i].editor, tabs[i].searchBuf);
+                            
+                            ImGui::SameLine();
+                            if (ImGui::Button("Nastepny")) FindNext(tabs[i].editor, tabs[i].searchBuf);
+                            
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(F3 / Shift+F3)");
+
+                            ImGui::SameLine(ImGui::GetWindowWidth() - 30 * textScale);
+                            if (ImGui::Button("X")) { tabs[i].showSearch = false; }
+                            
+                            ImGui::EndChild();
+                            ImGui::PopStyleColor();
+                        }
+
+                        // --- RENDEROWANIE EDYTORA ---
                         ImVec2 avail = ImGui::GetContentRegionAvail();
                         
-                        // --- KROK 1: LOGIKA PRZED RENDEREM (Nawiasy, Backspace) ---
+                        // Logika przed renderem (Backspace, Auto-domykanie)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
                             HandlePreRenderLogic(tabs[i].editor);
                         }
-
-                        // --- RENDEROWANIE ---
+                            
+                        // Główny komponent edytora
                         tabs[i].editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
 
-                        // --- KROK 2: LOGIKA PO RENDERZE (Smart Enter) ---
+                        // Logika po renderze (Smart Enter)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
                             HandlePostRenderLogic(tabs[i].editor);
                         }
 
+                        // Pasek statusu na dole karty
                         ImGui::Separator();
                         auto c = tabs[i].editor.GetCursorPosition();
-                        ImGui::Text("Ln %d, Col %d | %d Linii", c.mLine+1, c.mColumn+1, tabs[i].editor.GetTotalLines());
+                        ImGui::Text("Linia %d, Kolumna %d | Ogolem: %d linii | Skala: %.1fx", 
+                            c.mLine + 1, c.mColumn + 1, tabs[i].editor.GetTotalLines(), textScale);
+                        
                         ImGui::EndTabItem();
                     }
                     if (!open) tabs[i].isOpen = false;
                 }
                 ImGui::EndTabBar();
             }
-            // Usuwanie zamkniętych kart
-            for (int i = 0; i < tabs.size(); ) {
-                if (!tabs[i].isOpen) { tabs.erase(tabs.begin() + i); if (activeTab >= i && activeTab > 0) activeTab--; }
-                else i++;
+
+            // Usuwanie kart oznaczonych jako zamknięte
+            for (int i = 0; i < (int)tabs.size(); ) {
+                if (!tabs[i].isOpen) { 
+                    tabs.erase(tabs.begin() + i); 
+                    if (activeTab >= i && activeTab > 0) activeTab--; 
+                } else {
+                    i++;
+                }
             }
         }
         ImGui::End();
-
         // 3. KONSOLA
         ImGui::Begin("Konsola Wyjscia");
+        if (!g_SearchLog.empty()) {
+        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", g_SearchLog.c_str());
+        if (ImGui::Button("Wyczysc Logi Szukania")) g_SearchLog = "";
+        ImGui::Separator();
+        }
         if (isCompiling) ImGui::TextColored(ImVec4(1, 1, 0, 1), "KOMPILACJA...");
         if (errorList.empty()) ImGui::TextWrapped("%s", compilationOutput.c_str());
         else {

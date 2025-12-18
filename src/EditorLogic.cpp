@@ -1,16 +1,17 @@
 #include "EditorLogic.h"
-#include "imgui.h"
+#include "imgui.h" // Potrzebne do IsKeyPressed
 #include <string>
 #include <vector>
-#include <cstdio>
+#include <sstream> // Potrzebne do formatowania logów
 
-// --- PAMIĘĆ STANU ---
+// --- PAMIĘĆ STANU (Twoje zmienne) ---
 static bool g_wasAutoClosed = false;
 static TextEditor::Coordinates g_lastPos = { 0, 0 };
 static bool g_shouldDeleteClosing = false;
 static int g_deleteAtLine = -1;
 static int g_deleteAtColumn = -1;
 
+// --- LOGIKA ISTNIEJĄCA (Bez zmian) ---
 void HandlePreRenderLogic(TextEditor& editor) {
     ImGuiIO& io = ImGui::GetIO();
     auto pos = editor.GetCursorPosition();
@@ -18,21 +19,18 @@ void HandlePreRenderLogic(TextEditor& editor) {
 
     if (pos.mLine < 0 || pos.mLine >= (int)lines.size()) return;
 
-    // 1. MONITOROWANIE RUCHU
     if (g_wasAutoClosed) {
         if (pos.mLine != g_lastPos.mLine || pos.mColumn != g_lastPos.mColumn) {
             g_wasAutoClosed = false;
         }
     }
 
-    // 2. BACKSPACE CHECK
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && !editor.HasSelection()) {
         if (g_wasAutoClosed) {
             const std::string& line = lines[pos.mLine];
             if (pos.mColumn > 0 && pos.mColumn < (int)line.size()) {
                 char charLeft = line[pos.mColumn - 1];
                 char charRight = line[pos.mColumn];
-
                 bool isPair = (charLeft == '(' && charRight == ')') ||
                               (charLeft == '[' && charRight == ']') ||
                               (charLeft == '"' && charRight == '"') ||
@@ -48,7 +46,6 @@ void HandlePreRenderLogic(TextEditor& editor) {
         g_wasAutoClosed = false;
     }
 
-    // 3. AUTO-DOMYKANIE
     if (io.InputQueueCharacters.Size > 0) {
         for (int n = 0; n < io.InputQueueCharacters.Size; n++) {
             unsigned int c = io.InputQueueCharacters[n];
@@ -78,7 +75,6 @@ void HandlePostRenderLogic(TextEditor& editor) {
     auto pos = editor.GetCursorPosition();
     auto& lines = editor.GetTextLines();
 
-    // 1. USUWAMY ZAMYKAJĄCY ZNAK (Metoda Delete())
     if (g_shouldDeleteClosing) {
         g_shouldDeleteClosing = false;
         if (pos.mLine == g_deleteAtLine && pos.mColumn == g_deleteAtColumn) {
@@ -87,7 +83,6 @@ void HandlePostRenderLogic(TextEditor& editor) {
                 if (pos.mColumn < (int)line.size()) {
                     char c = line[pos.mColumn];
                     if (c == ')' || c == ']' || c == '"' || c == '\'') {
-                        // Jawne użycie TextEditor::Coordinates naprawia błąd C2664
                         editor.SetSelection(
                             TextEditor::Coordinates(pos.mLine, pos.mColumn), 
                             TextEditor::Coordinates(pos.mLine, pos.mColumn + 1)
@@ -99,7 +94,6 @@ void HandlePostRenderLogic(TextEditor& editor) {
         }
     }
 
-    // 2. SMART ENTER DLA KLAMR
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
         if (pos.mLine <= 0 || pos.mLine >= (int)lines.size()) return;
         const std::string& prevLine = lines[pos.mLine - 1];
@@ -109,7 +103,7 @@ void HandlePostRenderLogic(TextEditor& editor) {
             std::string indent = "";
             for (char ch : prevLine) { if (ch == ' ' || ch == '\t') indent += ch; else break; }
             
-            const std::string& currentLine = lines[pos.mLine]; // Naprawiony błąd C2065
+            const std::string& currentLine = lines[pos.mLine];
             size_t firstChar = currentLine.find_first_not_of(" \t\r\n");
 
             if (firstChar == std::string::npos) {
@@ -125,6 +119,145 @@ void HandlePostRenderLogic(TextEditor& editor) {
                     editor.SetCursorPosition(TextEditor::Coordinates(newPos.mLine - 1, (int)indent.size() + 4));
                 }
             }
+        }
+    }
+}
+
+// --- NOWA, NIEZAWODNA LOGIKA WYSZUKIWANIA ---
+
+std::string g_SearchLog = "";
+
+void FindNext(TextEditor& editor, const std::string& query) {
+    if (query.empty()) return;
+
+    auto pos = editor.GetCursorPosition();
+    auto& lines = editor.GetTextLines();
+    int totalLines = (int)lines.size();
+
+    std::stringstream debug;
+    debug << "[DEBUG] Szukam: '" << query << "' | Start: Ln " << pos.mLine << ", Col " << pos.mColumn << "\n";
+
+    // KROK 1: Sprawdź bieżącą linię od kursora w prawo
+    if (pos.mLine < totalLines) {
+        const std::string& currentLine = lines[pos.mLine];
+        
+        // Zaczynamy od pos.mColumn. Jeśli już coś jest wybrane, 
+        // automatycznie szukamy dalej (bo kursor będzie na końcu poprzedniego znaleziska).
+        size_t found = currentLine.find(query, pos.mColumn);
+        
+        if (found != std::string::npos) {
+            debug << " -> Znaleziono w bieżącej linii na col: " << found << "\n";
+            TextEditor::Coordinates sStart = {pos.mLine, (int)found};
+            TextEditor::Coordinates sEnd = {pos.mLine, (int)(found + query.length())};
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sEnd); // Przesuń kursor na koniec, by następne "Szukaj" szukało DALEJ
+            g_SearchLog = debug.str();
+            return;
+        }
+    }
+
+    // KROK 2: Sprawdź wszystkie linie PONIŻEJ
+    for (int i = pos.mLine + 1; i < totalLines; ++i) {
+        size_t found = lines[i].find(query);
+        if (found != std::string::npos) {
+            debug << " -> Znaleziono poniżej w linii: " << i << " na col: " << found << "\n";
+            TextEditor::Coordinates sStart = { i, (int)found };
+            TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sEnd);
+            g_SearchLog = debug.str();
+            return;
+        }
+    }
+
+    // KROK 3: Zawijanie - sprawdź od początku pliku (linia 0) do kursora
+    debug << " -> Nie znaleziono do końca pliku. Zawijam do linii 0...\n";
+    for (int i = 0; i <= pos.mLine; ++i) {
+        size_t found = std::string::npos;
+        
+        if (i == pos.mLine) {
+            // W linii kursora sprawdź tylko to, co jest przed kursorem
+            std::string sub = lines[i].substr(0, pos.mColumn);
+            found = sub.find(query);
+        } else {
+            found = lines[i].find(query);
+        }
+
+        if (found != std::string::npos) {
+            debug << " -> Znaleziono po zawinięciu w linii: " << i << " na col: " << found << "\n";
+            TextEditor::Coordinates sStart = { i, (int)found };
+            TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sEnd);
+            g_SearchLog = debug.str();
+            return;
+        }
+    }
+
+    debug << " -> Brak wyników w całym pliku.\n";
+    g_SearchLog = debug.str();
+}
+
+void FindPrev(TextEditor& editor, const std::string& query) {
+    if (query.empty()) return;
+
+    auto pos = editor.GetCursorPosition();
+    auto& lines = editor.GetTextLines();
+    int totalLines = (int)lines.size();
+
+    // ETAP 1: Szukaj w bieżącej linii PRZED kursorem
+    if (pos.mLine < totalLines && pos.mColumn > 0) {
+        // rfind szuka od prawej strony, ale nie dalej niż wskazany indeks
+        size_t searchLimit = pos.mColumn; 
+        
+        // Jeśli jesteśmy na początku słowa/linii, musimy się cofnąć o 1, żeby nie znaleźć tego samego
+        if (searchLimit > 0) searchLimit--; 
+
+        size_t found = lines[pos.mLine].rfind(query, searchLimit);
+        if (found != std::string::npos) {
+            TextEditor::Coordinates sStart = { pos.mLine, (int)found };
+            TextEditor::Coordinates sEnd = { pos.mLine, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sStart); // Przy szukaniu W TYŁ kursor dajemy na początek
+            return;
+        }
+    }
+
+    // ETAP 2: Szukaj w liniach POWYŻEJ bieżącej
+    for (int i = pos.mLine - 1; i >= 0; --i) {
+        size_t found = lines[i].rfind(query);
+        if (found != std::string::npos) {
+            TextEditor::Coordinates sStart = { i, (int)found };
+            TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sStart);
+            return;
+        }
+    }
+
+    // ETAP 3: (Pętla) Szukaj od SAMEGO DOŁU pliku do linii pod kursorem
+    for (int i = totalLines - 1; i > pos.mLine; --i) {
+        size_t found = lines[i].rfind(query);
+        if (found != std::string::npos) {
+            TextEditor::Coordinates sStart = { i, (int)found };
+            TextEditor::Coordinates sEnd = { i, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sStart);
+            return;
+        }
+    }
+
+    // ETAP 4: (Pętla) Szukaj w bieżącej linii od KOŃCA LINI do kursora
+    if (pos.mLine < totalLines) {
+        // rfind bez drugiego argumentu szuka od samego końca stringa
+        size_t found = lines[pos.mLine].rfind(query);
+        // Ale interesuje nas tylko, jeśli jest ZA kursorem (bo to pętla "od tyłu")
+        if (found != std::string::npos && found >= (size_t)pos.mColumn) {
+            TextEditor::Coordinates sStart = { pos.mLine, (int)found };
+            TextEditor::Coordinates sEnd = { pos.mLine, (int)(found + query.length()) };
+            editor.SetSelection(sStart, sEnd);
+            editor.SetCursorPosition(sStart);
+            return;
         }
     }
 }
