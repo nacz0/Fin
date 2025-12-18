@@ -56,28 +56,86 @@ std::vector<ParsedError> ParseCompilerOutput(const std::string& output) {
     return errors;
 }
 
-void HandleAutoClosing(TextEditor& editor) {
+// Ta funkcja obsługuje znaki i backspace (wywoływana PRZED Render)
+void HandlePreRenderLogic(TextEditor& editor) {
     ImGuiIO& io = ImGui::GetIO();
-    
-    // Sprawdzamy, czy w tej klatce użytkownik coś wpisał
+    auto pos = editor.GetCursorPosition();
+    auto& lines = editor.GetTextLines();
+
+    if (pos.mLine >= (int)lines.size()) return;
+
+    // --- 1. INTELIGENTNY BACKSPACE (Usuwanie par) ---
+    if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && !editor.HasSelection()) {
+        if (pos.mLine < (int)lines.size()) {
+            const std::string& line = lines[pos.mLine];
+            if (pos.mColumn > 0 && pos.mColumn < (int)line.size()) {
+                char charLeft = line[pos.mColumn - 1];
+                char charRight = line[pos.mColumn];
+                
+                if ((charLeft == '(' && charRight == ')') ||
+                    (charLeft == '[' && charRight == ']') ||
+                    (charLeft == '{' && charRight == '}') ||
+                    (charLeft == '"' && charRight == '"') ||
+                    (charLeft == '\'' && charRight == '\'')) 
+                {
+                    editor.SetSelection(pos, { pos.mLine, pos.mColumn + 1 });
+                    editor.InsertText("");
+                }
+            }
+        }
+    }
+
+    // --- 2. AUTO-DOMYKANIE ---
     for (int n = 0; n < io.InputQueueCharacters.Size; n++) {
         unsigned int c = io.InputQueueCharacters[n];
-        
         char closingChar = 0;
         if (c == '(') closingChar = ')';
-        else if (c == '{') closingChar = '}';
         else if (c == '[') closingChar = ']';
         else if (c == '"') closingChar = '"';
         else if (c == '\'') closingChar = '\'';
 
         if (closingChar != 0) {
-            // Wstawiamy znak domykający
             editor.InsertText(std::string(1, closingChar));
+            auto p = editor.GetCursorPosition();
+            editor.SetCursorPosition({ p.mLine, p.mColumn - 1 });
+        }
+    }
+}
+
+// Ta funkcja obsługuje Enter (wywoływana PO Render)
+void HandlePostRenderLogic(TextEditor& editor) {
+    auto pos = editor.GetCursorPosition();
+    auto& lines = editor.GetTextLines();
+
+    if (pos.mLine >= (int)lines.size()) return;
+
+    // --- 3. INTELIGENTNY ENTER (Musi być PO Render, bo sprawdza nową linię) ---
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+        if (pos.mLine > 0) {
+            std::string prevLine = lines[pos.mLine - 1];
+            size_t lastChar = prevLine.find_last_not_of(" \t\r\n");
             
-            // Musimy cofnąć kursor o jeden znak, żeby pisać MIĘDZY nawiasami
-            auto pos = editor.GetCursorPosition();
-            if (pos.mColumn > 0) {
-                editor.SetCursorPosition({ pos.mLine, pos.mColumn - 1 });
+            if (lastChar != std::string::npos && prevLine[lastChar] == '{') {
+                std::string indent = "";
+                for (char c : prevLine) {
+                    if (c == ' ' || c == '\t') indent += c;
+                    else break;
+                }
+
+                std::string currentLine = lines[pos.mLine];
+                bool isEmptyOrIndent = true;
+                for (char c : currentLine) {
+                    if (c != ' ' && c != '\t') { isEmptyOrIndent = false; break; }
+                }
+
+                if (isEmptyOrIndent) {
+                    editor.SetSelection({ pos.mLine, 0 }, { pos.mLine, (int)currentLine.size() });
+                    editor.InsertText(""); 
+                    
+                    std::string block = indent + "    \n" + indent + "}";
+                    editor.InsertText(block);
+                    editor.SetCursorPosition({ pos.mLine, (int)indent.size() + 4 });
+                }
             }
         }
     }
@@ -298,16 +356,21 @@ int main(int, char**) {
                         activeTab = i;
                         if (nextTabToFocus == i) nextTabToFocus = -1;
 
-                        // --- AUTO-DOMYKANIE NAWIASÓW ---
-                        // Wywołujemy tylko dla aktywnego, sfokusowanego okna
+                        ImVec2 avail = ImGui::GetContentRegionAvail();
+            
+                        // --- CZEŚĆ 1: Logika PRZED renderowaniem (Nawiasy, Backspace) ---
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-                            HandleAutoClosing(tabs[i].editor);
+                            HandlePreRenderLogic(tabs[i].editor);
                         }
 
-                        ImVec2 avail = ImGui::GetContentRegionAvail();
-                        // Pamiętaj: rozmiar edytora musi uwzględniać pasek stanu na dole (30px)
+                        // --- RENDEROWANIE (Tutaj edytor rysuje tekst i obsługuje klawisze) ---
                         tabs[i].editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
-                        
+
+                        // --- CZĘŚĆ 2: Logika PO renderowaniu (Poprawianie Entera) ---
+                        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+                            HandlePostRenderLogic(tabs[i].editor);
+                        }
+
                         // Pasek stanu
                         ImGui::Separator();
                         auto c = tabs[i].editor.GetCursorPosition();
