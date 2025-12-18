@@ -121,7 +121,7 @@ int main(int, char**) {
     std::string compilationOutput = "Witaj w Fin!\nOtworz folder lub plik, aby zaczac prace.";
     std::future<std::string> compilationTask; 
     bool isCompiling = false;
-
+    float textScale = 1.0f; // Domyślna skala tekstu (1.0 = 100%)
     std::vector<ParsedError> errorList; // Tu trzymamy sparsowane błędy
 
     // Stan eksploratora plików
@@ -134,6 +134,16 @@ int main(int, char**) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
+        // --- OBSŁUGA ZOOMU (Ctrl + Scroll) ---
+        if (io.KeyCtrl && io.MouseWheel != 0.0f) {
+            textScale += io.MouseWheel * 0.1f; // Zwiększ/zmniejsz o 10%
+            
+            // Ograniczenia (żeby nie zniknęło lub nie było za wielkie)
+            if (textScale < 0.5f) textScale = 0.5f;
+            if (textScale > 3.0f) textScale = 3.0f;
+        }
+        io.FontGlobalScale = textScale; // Aplikujemy skalę do całej klatki
 
         // A. SAFETY CLAMP (Zabezpieczenie indeksów przed crashem)
         if (tabs.empty()) {
@@ -348,7 +358,8 @@ int main(int, char**) {
         ImGui::End();
 
         // --- OKNO 2: EDYTOR (ZAKŁADKI) ---
-        ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar);
+        // Dodajemy flagę NoScrollbar, żeby pasek stanu był zawsze na dole, niezależnie od tekstu
+        ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar);
         
         if (tabs.empty()) {
             ImGui::TextDisabled("Brak otwartych plikow. Uzyj Ctrl+N lub Eksploratora.");
@@ -360,41 +371,52 @@ int main(int, char**) {
                     std::string label = tabs[i].name + "##" + std::to_string(i);
                     
                     ImGuiTabItemFlags flags = 0;
-                    
-                    // --- POPRAWKA START ---
-                    // Ustawiamy flagę TYLKO gdy mamy wyraźny rozkaz zmiany (np. z Ctrl+N)
-                    // Nie wymuszamy "activeTab", pozwalamy ImGui obsłużyć kliknięcia myszką
                     if (nextTabToFocus == i) {
                         flags = ImGuiTabItemFlags_SetSelected;
-                        activeTab = i;     
-                        nextTabToFocus = -1; // Rozkaz wykonany
+                        activeTab = i; nextTabToFocus = -1;
+                    } else if (activeTab == i) {
+                        flags = ImGuiTabItemFlags_SetSelected;
                     }
-                    // USUNIĘTO: else if (activeTab == i) ... <- To blokowało zmianę kart "w przód"
-                    // --- POPRAWKA END ---
 
                     if (ImGui::BeginTabItem(label.c_str(), &open, flags)) {
-                        // To tutaj ImGui mówi nam: "Hej, ta karta jest teraz aktywna (bo użytkownik kliknął)"
                         activeTab = i;
                         
-                        tabs[i].editor.Render("CodeEditor");
+                        // --- OBLICZANIE MIEJSCA NA EDYTOR VS PASEK STANU ---
+                        // Zostawiamy 30 pikseli na dole na pasek stanu
+                        ImVec2 available = ImGui::GetContentRegionAvail();
+                        ImVec2 editorSize = ImVec2(available.x, available.y - 30.0f * textScale); 
+                        
+                        // Renderujemy edytor w wydzielonym obszarze
+                        tabs[i].editor.Render("CodeEditor", editorSize);
+                        
+                        // --- PASEK STANU ---
+                        auto cursor = tabs[i].editor.GetCursorPosition(); // Pobierz pozycję (linia, kolumna)
+                        int lines = tabs[i].editor.GetTotalLines();
+                        bool overwrite = tabs[i].editor.IsOverwrite(); // Czy tryb Insert czy Overwrite
+                        bool canUndo = tabs[i].editor.CanUndo();
+                        
+                        ImGui::Separator();
+                        // Wyświetlamy info
+                        ImGui::Text("Ln %d, Col %d  |  %d Linii  |  %s  |  %s", 
+                            cursor.mLine + 1, cursor.mColumn + 1, // +1 bo programiści liczą od 0, a ludzie od 1
+                            lines,
+                            overwrite ? "OVR" : "INS",
+                            canUndo ? "*" : " " // Gwiazdka jeśli są niezapisane zmiany (uproszczenie)
+                        );
+
                         ImGui::EndTabItem();
                     }
-
                     if (!open) tabs[i].isOpen = false;
                 }
                 ImGui::EndTabBar();
             }
-
-            // Usuwanie zamkniętych kart
-            for (int i = 0; i < tabs.size(); ) {
+            // ... (usuwanie kart bez zmian) ...
+             for (int i = 0; i < tabs.size(); ) {
                 if (!tabs[i].isOpen) {
                     tabs.erase(tabs.begin() + i);
-                    // Po usunięciu trzeba skorygować activeTab
                     if (activeTab >= i && activeTab > 0) activeTab--;
                     if (tabs.empty()) activeTab = -1;
-                } else {
-                    i++;
-                }
+                } else i++;
             }
         }
         ImGui::End();
