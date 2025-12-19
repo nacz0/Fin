@@ -74,7 +74,8 @@ void HandlePreRenderLogic(TextEditor& editor) {
     }
 }
 
-void HandlePostRenderLogic(TextEditor& editor) {
+void HandlePostRenderLogic(EditorTab& tab) {
+    auto& editor = tab.editor;
     auto pos = editor.GetCursorPosition();
     auto& lines = editor.GetTextLines();
 
@@ -98,6 +99,12 @@ void HandlePostRenderLogic(TextEditor& editor) {
     }
 
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+        // JEŚLI FLAGA justConsumedEnter JEST USTAWIONA, ZRESETUJ JĄ I NIE RÓB NOWEJ LINII
+        if (tab.acState && tab.acState->justConsumedEnter) {
+            tab.acState->justConsumedEnter = false;
+            return;
+        }
+
         if (pos.mLine <= 0 || pos.mLine >= (int)lines.size()) return;
         const std::string& prevLine = lines[pos.mLine - 1];
         size_t lastChar = prevLine.find_last_not_of(" \t\r\n");
@@ -380,7 +387,14 @@ void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp) {
 
     // 2. Obsługa nawigacji gdy popup jest otwarty
     if (tab.acState->show && !tab.acState->items.empty()) {
-        // KLUCZOWE: Blokujemy klawiaturę w edytorze, żeby strzałki/enter nie ruszały kursorem
+        // Jeśli kursor się przesunął w bok/górę/dół (poza te same współrzędne), zamknij popup
+        if (pos.mLine != tab.acState->coord.mLine || pos.mColumn != tab.acState->coord.mColumn) {
+            tab.acState->show = false;
+            editor.SetHandleKeyboardInputs(true);
+            return;
+        }
+
+        // KLUCZOWE: Blokujemy klawiaturę w edytorze
         editor.SetHandleKeyboardInputs(false);
 
         int itemCount = (int)tab.acState->items.size();
@@ -393,10 +407,20 @@ void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp) {
         } else if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Tab)) {
             if (tab.acState->selectedIndex >= 0 && tab.acState->selectedIndex < itemCount) {
                 auto& item = tab.acState->items[tab.acState->selectedIndex];
-                editor.SetHandleKeyboardInputs(true); // Przywróć przed wstawieniem
+                // NIE włączamy klawiatury tutaj - zostanie włączona po renderze
+                // Musimy tymczasowo włączyć tylko na czas InsertText
+                editor.SetHandleKeyboardInputs(true);
                 editor.InsertText(item.insertText);
+                editor.SetHandleKeyboardInputs(false); // Od razu wyłącz z powrotem przed Render()
+                
+                // USTAW FLAGĘ, ABY HandlePostRenderLogic NIE DODAŁO NOWEJ LINII
+                if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+                    tab.acState->justConsumedEnter = true;
+                }
             }
             tab.acState->show = false;
+            // Przywracamy klawiaturę dopiero gdy popup się zamyka
+            // ALE nie tutaj - zrobimy to w else poniżej gdy show==false
         } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             tab.acState->show = false;
         }

@@ -41,6 +41,7 @@ struct EditorTab {
         int selectedIndex = 0;
         TextEditor::Coordinates coord;
         bool requested = false;
+        bool justConsumedEnter = false; // Flaga do blokowania nowej linii po Enterze
     };
 
     std::shared_ptr<AutocompleteState> acState;

@@ -1,11 +1,14 @@
 #pragma once
 #include "TextEditor.h"
 #include <string>
+struct EditorTab;
+class LSPClient;
+
 // Funkcja obsługująca Backspace i Auto-domykanie (wywoływana PRZED Render)
 void HandlePreRenderLogic(TextEditor& editor);
 
 // Funkcja obsługująca Smart Enter (wywoływana PO Render)
-void HandlePostRenderLogic(TextEditor& editor);
+void HandlePostRenderLogic(EditorTab& tab);
 
 // Funkcja wyszukująca tekst w edytorze
 void FindNext(TextEditor& editor, const std::string& query);

@@ -477,7 +477,7 @@ int main(int, char**) {
 
                         // Logika po renderze (Smart Enter)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-                            HandlePostRenderLogic(tabs[i]->editor);
+                            HandlePostRenderLogic(*tabs[i]);
                         }
 
                         // Pasek statusu na dole karty
