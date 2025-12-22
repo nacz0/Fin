@@ -48,17 +48,48 @@ bool LSPClient::Start(const std::string& clangdPath) {
 }
 
 void LSPClient::Stop() {
-    m_running = false;
+    bool expected = true;
+    if (!m_running.compare_exchange_strong(expected, false)) return; // Already stopped
+    
+    std::cout << "[LSP] Stopping clangd..." << std::endl;
+    
 #ifdef _WIN32
+    // Terminate the process immediately
+    std::cout << "[LSP] Terminating process..." << std::endl;
     if (m_pi.hProcess) {
         TerminateProcess(m_pi.hProcess, 0);
+        std::cout << "[LSP] Process terminated, closing process handles..." << std::endl;
         CloseHandle(m_pi.hProcess);
         CloseHandle(m_pi.hThread);
+        m_pi.hProcess = NULL;
+        m_pi.hThread = NULL;
+        std::cout << "[LSP] Process handles closed." << std::endl;
     }
-    if (m_hChildStdInWrite) CloseHandle(m_hChildStdInWrite);
-    if (m_hChildStdOutRead) CloseHandle(m_hChildStdOutRead);
+    
+    // Close WRITE handles only - this stops communication but allows ReadLoop to finish safely
+    std::cout << "[LSP] Closing write pipe handles..." << std::endl;
+    if (m_hChildStdInWrite) { 
+        CloseHandle(m_hChildStdInWrite); 
+        m_hChildStdInWrite = NULL; 
+    }
+    if (m_hChildStdOutWrite) { 
+        CloseHandle(m_hChildStdOutWrite); 
+        m_hChildStdOutWrite = NULL; 
+    }
+    std::cout << "[LSP] Write handles closed." << std::endl;
+    
+    // DON'T close read handles here - let ReadLoop exit naturally and clean up in destructor
+    // The read handles will be closed when ReadFile fails due to terminated process
 #endif
-    if (m_readThread.joinable()) m_readThread.join();
+    
+    // Detach the thread - it will exit naturally when ReadFile fails
+    std::cout << "[LSP] Detaching thread..." << std::endl;
+    if (m_readThread.joinable()) {
+        m_readThread.detach();
+    }
+    std::cout << "[LSP] Thread detached." << std::endl;
+    
+    std::cout << "[LSP] clangd stopped." << std::endl;
 }
 
 void LSPClient::Initialize(const std::string& rootPath) {
@@ -174,16 +205,22 @@ void LSPClient::SendNotification(const std::string& method, json params) {
 }
 
 void LSPClient::WriteToPipe(const std::string& data) {
+    if (!m_running || !m_hChildStdInWrite) return;
     std::string header = "Content-Length: " + std::to_string(data.length()) + "\r\n\r\n";
     std::string full = header + data;
     DWORD written;
-    WriteFile(m_hChildStdInWrite, full.c_str(), (DWORD)full.length(), &written, NULL);
+    if (!WriteFile(m_hChildStdInWrite, full.c_str(), (DWORD)full.length(), &written, NULL)) {
+        // Log error if needed
+    }
 }
 
 void LSPClient::ReadLoop() {
     char buffer[4096];
     std::string leftover;
     while (m_running) {
+        // Check if handle is still valid
+        if (!m_hChildStdOutRead) break;
+        
         DWORD read;
         if (!ReadFile(m_hChildStdOutRead, buffer, sizeof(buffer) - 1, &read, NULL) || read == 0) break;
         buffer[read] = '\0';

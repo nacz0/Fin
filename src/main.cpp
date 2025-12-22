@@ -63,10 +63,55 @@ void ShowMainMenuBar(LSPClient& lsp, AppConfig& config, std::vector<std::unique_
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::MenuItem("Ustawienia", nullptr, config.showSettingsWindow)) {
+                config.showSettingsWindow = !config.showSettingsWindow;
+            }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
     }
+}
+
+void ShowSettings(AppConfig& config, float& textScale, LSPClient& lsp, std::vector<std::unique_ptr<EditorTab>>& tabs) {
+    if (!config.showSettingsWindow) return;
+
+    if (ImGui::Begin("Ustawienia", &config.showSettingsWindow)) {
+        ImGui::Text("Edytor");
+        ImGui::Separator();
+        
+        bool prevAutocomplete = config.autocompleteEnabled;
+        ImGui::Checkbox("Autouzupełnianie (LSP)", &config.autocompleteEnabled);
+        
+        // Dynamiczne zarządzanie LSP
+        if (prevAutocomplete != config.autocompleteEnabled) {
+            if (config.autocompleteEnabled) {
+                // Włączenie: uruchom LSP i ponownie otwórz pliki
+                if (!lsp.IsRunning()) {
+                    if (lsp.Start()) {
+                        lsp.Initialize(fs::current_path().string());
+                        for (auto& t : tabs) {
+                            if (!t->path.empty()) {
+                                lsp.DidOpen(t->path, t->editor.GetText());
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Wyłączenie: zatrzymaj LSP 
+                lsp.Stop();
+            }
+        }
+        
+        ImGui::Checkbox("Auto-domykanie nawiasów/cudzysłowów", &config.autoClosingBrackets);
+        ImGui::Checkbox("Inteligentne wcięcia (Smart Indent)", &config.smartIndentEnabled);
+        
+        ImGui::Separator();
+        ImGui::Text("Wygląd");
+        if (ImGui::SliderFloat("Zoom", &textScale, 0.5f, 3.0f, "%.1fx")) {
+            config.zoom = textScale;
+        }
+    }
+    ImGui::End();
 }
 
 void ShowExplorer(LSPClient& lsp, AppConfig& config, fs::path& currentPath, std::vector<std::unique_ptr<EditorTab>>& tabs, int& nextTabToFocus, float textScale, ImGuiIO& io) {
@@ -100,9 +145,10 @@ void ShowExplorer(LSPClient& lsp, AppConfig& config, fs::path& currentPath, std:
                     }
                     if(!open) {
                         auto nt = std::make_unique<EditorTab>(); 
+                        nt->configRef = &config;
                         nt->name = name; nt->path = p; nt->editor.SetText(OpenFile(p));
                         ThemeManager::ApplyTheme(config.theme, *nt);
-                        lsp.DidOpen(p, nt->editor.GetText());
+                        if (lsp.IsRunning()) lsp.DidOpen(p, nt->editor.GetText());
                         tabs.push_back(std::move(nt)); nextTabToFocus = tabs.size()-1;
                     }
                 }
@@ -139,8 +185,9 @@ void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::ve
     ImGui::End();
 }
 
-void RenderAutocompletePopup(EditorTab& tab, float textScale) {
-    if (!tab.acState->show || tab.acState->items.empty()) {
+void RenderAutocompletePopup(EditorTab& tab, float textScale, LSPClient& lsp) {
+    if (!lsp.IsRunning() || !tab.acState->show || tab.acState->items.empty()) {
+        tab.acState->show = false;
         return;
     }
     
@@ -162,8 +209,8 @@ void RenderAutocompletePopup(EditorTab& tab, float textScale) {
             }
             if (selected) ImGui::SetItemDefaultFocus();
         }
-        ImGui::End();
     }
+    ImGui::End();
 }
 
 
@@ -234,6 +281,7 @@ int main(int, char**) {
     for (const auto& filePath : config.openFiles) {
         if (fs::exists(filePath)) {
             auto nt = std::make_unique<EditorTab>();
+            nt->configRef = &config;
             nt->name = fs::path(filePath).filename().string();
             nt->path = filePath;
             nt->editor.SetText(OpenFile(filePath));
@@ -241,7 +289,7 @@ int main(int, char**) {
             // Aplikacja zapisanego motywu
             ThemeManager::ApplyTheme(config.theme, *nt);
 
-            lsp.DidOpen(filePath, nt->editor.GetText());
+            if (lsp.IsRunning()) lsp.DidOpen(filePath, nt->editor.GetText());
             tabs.push_back(std::move(nt));
         }
     }
@@ -263,6 +311,7 @@ int main(int, char**) {
             textScale += io.MouseWheel * 0.1f;
             if (textScale < 0.5f) textScale = 0.5f;
             if (textScale > 3.0f) textScale = 3.0f;
+            config.zoom = textScale; // Sync to config
         }
         io.FontGlobalScale = textScale;
 
@@ -320,6 +369,7 @@ int main(int, char**) {
         // --- LOGIKA AKCJI ---
         if (actionNew) {
             auto nt = std::make_unique<EditorTab>();
+            nt->configRef = &config;
             nt->name = "Bez tytulu";
             
             // Aplikacja aktualnego motywu do nowej karty
@@ -336,13 +386,14 @@ int main(int, char**) {
                 for(int i=0; i<tabs.size(); i++) if(tabs[i]->path == p) { nextTabToFocus = i; found = true; break; }
                 if(!found) {
                     auto nt = std::make_unique<EditorTab>();
+                    nt->configRef = &config;
                     nt->name = fs::path(p).filename().string(); nt->path = p;
                     nt->editor.SetText(OpenFile(p)); 
                     
                     // Aplikacja aktualnego motywu
                     ThemeManager::ApplyTheme(config.theme, *nt);
 
-                    lsp.DidOpen(p, nt->editor.GetText());
+                    if (lsp.IsRunning()) lsp.DidOpen(p, nt->editor.GetText());
                     tabs.push_back(std::move(nt)); nextTabToFocus = tabs.size()-1;
                 }
             }
@@ -373,6 +424,9 @@ int main(int, char**) {
         
         // 1. EKSPLORATOR
         ShowExplorer(lsp, config, currentPath, tabs, nextTabToFocus, textScale, io);
+
+        // 1.5 USTAWIENIA
+        ShowSettings(config, textScale, lsp, tabs);
 
         // 2. EDYTOR
         ImGui::Begin("Kod Zrodlowy", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar);
@@ -459,8 +513,8 @@ int main(int, char**) {
                         
                         // Logika przed renderem (Backspace, Auto-domykanie)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
-                            HandlePreRenderLogic(tabs[i]->editor);
-                            HandleAutocompleteLogic(*tabs[i], lsp);
+                            HandlePreRenderLogic(tabs[i]->editor, config);
+                            HandleAutocompleteLogic(*tabs[i], lsp, config);
                         }
                             
                         // Główny komponent edytora
@@ -468,10 +522,10 @@ int main(int, char**) {
 
                         // --- AUTOUZUPEŁNIANIE UI ---
                         if (tabs[i]->acState->show) {
-                            RenderAutocompletePopup(*tabs[i], textScale);
+                            RenderAutocompletePopup(*tabs[i], textScale, lsp);
                         }
 
-                        if (tabs[i]->editor.IsTextChanged()) {
+                        if (tabs[i]->editor.IsTextChanged() && lsp.IsRunning()) {
                             lsp.DidChange(tabs[i]->path, tabs[i]->editor.GetText());
                         }
 

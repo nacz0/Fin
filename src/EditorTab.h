@@ -4,7 +4,10 @@
 #include <memory>
 #include "TextEditor.h"
 
+#include "Utils.h"
+
 struct EditorTab {
+    const AppConfig* configRef = nullptr;
     std::string name;
     std::string path;
     TextEditor editor;

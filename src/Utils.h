@@ -11,6 +11,12 @@ struct AppConfig {
     std::vector<std::string> openFiles; // Lista ścieżek do otwartych plików
     int activeTabIndex = -1; // Indeks aktywnej karty
     int theme = 0;           // 0: Dark, 1: Light, 2: RetroBlue
+    
+    // NOWE: Ustawienia edytora
+    bool autocompleteEnabled = true;
+    bool autoClosingBrackets = true;
+    bool smartIndentEnabled = true;
+    bool showSettingsWindow = false;
 };
 
 void SaveConfig(const AppConfig& config);

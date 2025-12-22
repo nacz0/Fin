@@ -15,7 +15,7 @@ static int g_deleteAtLine = -1;
 static int g_deleteAtColumn = -1;
 
 // --- LOGIKA ISTNIEJĄCA (Bez zmian) ---
-void HandlePreRenderLogic(TextEditor& editor) {
+void HandlePreRenderLogic(TextEditor& editor, const AppConfig& config) {
     ImGuiIO& io = ImGui::GetIO();
     auto pos = editor.GetCursorPosition();
     auto& lines = editor.GetTextLines();
@@ -49,7 +49,10 @@ void HandlePreRenderLogic(TextEditor& editor) {
         g_wasAutoClosed = false;
     }
 
-    if (io.InputQueueCharacters.Size > 0) {
+
+
+    // --- NOWE: Auto-domykanie nawiasów ---
+    if (config.autoClosingBrackets && io.InputQueueCharacters.Size > 0) {
         for (int n = 0; n < io.InputQueueCharacters.Size; n++) {
             unsigned int c = io.InputQueueCharacters[n];
             char closingChar = 0;
@@ -104,6 +107,9 @@ void HandlePostRenderLogic(EditorTab& tab) {
             tab.acState->justConsumedEnter = false;
             return;
         }
+
+        if (!tab.configRef) return; // Fail-safe
+        if (!tab.configRef->smartIndentEnabled) return;
 
         if (pos.mLine <= 0 || pos.mLine >= (int)lines.size()) return;
         const std::string& prevLine = lines[pos.mLine - 1];
@@ -303,7 +309,12 @@ void ApplyGlobalTheme(int themeIndex) {
     }
 }
 
-void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp) {
+void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp, const AppConfig& config) {
+    if (!config.autocompleteEnabled) {
+        tab.acState->show = false;
+        tab.editor.SetHandleKeyboardInputs(true);
+        return;
+    }
     ImGuiIO& io = ImGui::GetIO();
     auto& editor = tab.editor;
     auto pos = editor.GetCursorPosition();

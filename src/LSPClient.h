@@ -5,7 +5,9 @@
 #include <mutex>
 #include <queue>
 #include <json.hpp>
-
+#include <atomic>
+#include <functional>
+#include <map>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -31,6 +33,7 @@ public:
 
     bool Start(const std::string& clangdPath = "clangd");
     void Stop();
+    bool IsRunning() const { return m_running; }
 
     void Initialize(const std::string& rootPath);
     void DidOpen(const std::string& uri, const std::string& text);
@@ -48,7 +51,7 @@ private:
     void WriteToPipe(const std::string& data);
     void ReadLoop();
 
-    bool m_running = false;
+    std::atomic<bool> m_running{false};
     std::thread m_readThread;
     std::function<void(const std::string&, const std::vector<LSPDiagnostic>&)> m_diagCallback;
 

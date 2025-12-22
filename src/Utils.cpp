@@ -17,6 +17,9 @@ void SaveConfig(const AppConfig& config) {
         out << "height=" << config.windowHeight << "\n";
         out << "activeTab=" << config.activeTabIndex << "\n";
         out << "theme=" << config.theme << "\n";
+        out << "ac=" << (config.autocompleteEnabled ? "1" : "0") << "\n";
+        out << "brackets=" << (config.autoClosingBrackets ? "1" : "0") << "\n";
+        out << "indent=" << (config.smartIndentEnabled ? "1" : "0") << "\n";
         
         // Zapisujemy każdą ścieżkę w nowej linii
         for (const auto& path : config.openFiles) {
@@ -48,6 +51,9 @@ AppConfig LoadConfig() {
                 else if (key == "height") config.windowHeight = std::stoi(value);
                 else if (key == "activeTab") config.activeTabIndex = std::stoi(value);
                 else if (key == "theme") config.theme = std::stoi(value);
+                else if (key == "ac") config.autocompleteEnabled = (value == "1");
+                else if (key == "brackets") config.autoClosingBrackets = (value == "1");
+                else if (key == "indent") config.smartIndentEnabled = (value == "1");
                 else if (key == "file") config.openFiles.push_back(value); // Dodajemy ścieżkę do listy
             }
         }
