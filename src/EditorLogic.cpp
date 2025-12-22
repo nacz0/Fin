@@ -312,6 +312,7 @@ void ApplyGlobalTheme(int themeIndex) {
 void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp, const AppConfig& config) {
     if (!config.autocompleteEnabled) {
         tab.acState->show = false;
+        tab.acState->items.clear(); // [OPTIMIZATION] Clear items to save RAM
         tab.editor.SetHandleKeyboardInputs(true);
         return;
     }
