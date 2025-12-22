@@ -48,15 +48,31 @@ endif()
 
 add_executable(Fin 
     src/main.cpp 
-    src/Utils.cpp
-    src/EditorLogic.cpp
-    src/Compiler.cpp
-    src/ThemeManager.cpp
-    src/LSPClient.cpp
-    src/Terminal.cpp
+    
+    # Core
+    src/Core/ConfigManager.cpp
+    src/Core/FileManager.cpp
+    src/Core/LSPClient.cpp
+    src/Core/Terminal.cpp
+    src/Core/Compiler.cpp
+    
+    # Editor
+    src/Editor/EditorLogic.cpp
+    src/Editor/SearchLogic.cpp
+    src/Editor/AutocompleteLogic.cpp
+    src/Editor/ThemeManager.cpp
+    
+    # UI
+    src/UI/MenuBar.cpp
+    src/UI/SettingsPanel.cpp
+    src/UI/ExplorerPanel.cpp
+    src/UI/ConsolePanel.cpp
+    src/UI/TerminalPanel.cpp
+    src/UI/AutocompletePopup.cpp
 )
 
 target_include_directories(Fin PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${imgui_SOURCE_DIR} 
     ${imgui_SOURCE_DIR}/backends
     ${color_text_edit_SOURCE_DIR}

@@ -1,10 +1,6 @@
-#include "Utils.h" // Dołączamy nasz nagłówek
+#include "ConfigManager.h"
 #include <fstream>
 #include <sstream>
-#include <array>
-#include <cstdio>
-#include <memory>
-#include <iostream>
 
 const char* CONFIG_FILE = "fin.ini";
 
@@ -21,7 +17,6 @@ void SaveConfig(const AppConfig& config) {
         out << "brackets=" << (config.autoClosingBrackets ? "1" : "0") << "\n";
         out << "indent=" << (config.smartIndentEnabled ? "1" : "0") << "\n";
         
-        // Zapisujemy każdą ścieżkę w nowej linii
         for (const auto& path : config.openFiles) {
             if (!path.empty()) {
                 out << "file=" << path << "\n";
@@ -54,38 +49,10 @@ AppConfig LoadConfig() {
                 else if (key == "ac") config.autocompleteEnabled = (value == "1");
                 else if (key == "brackets") config.autoClosingBrackets = (value == "1");
                 else if (key == "indent") config.smartIndentEnabled = (value == "1");
-                else if (key == "file") config.openFiles.push_back(value); // Dodajemy ścieżkę do listy
+                else if (key == "file") config.openFiles.push_back(value);
             }
         }
         in.close();
     }
     return config;
-}
-
-void SaveFile(const std::string& filename, const std::string& text) {
-    std::ofstream out(filename);
-    out << text;
-    out.close();
-}
-
-std::string OpenFile(const std::string& filename) {
-    std::ifstream in(filename);
-    if (in) {
-        std::stringstream buffer;
-        buffer << in.rdbuf();
-        return buffer.str();
-    }
-    return "";
-}
-
-std::string ExecCommand(const char* cmd) {
-    std::array<char, 128> buffer;
-    std::string result;
-    // _popen to specyficzne dla Windows (na Linux byłoby popen)
-    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd, "r"), _pclose);
-    if (!pipe) return "popen() failed!";
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
 }

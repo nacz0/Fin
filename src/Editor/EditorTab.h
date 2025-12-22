@@ -4,7 +4,8 @@
 #include <memory>
 #include "TextEditor.h"
 
-#include "Utils.h"
+#include "../Core/AppConfig.h"
+#include "../Core/LSPClient.h"
 
 struct EditorTab {
     const AppConfig* configRef = nullptr;
@@ -13,27 +14,23 @@ struct EditorTab {
     TextEditor editor;
     bool isOpen = true;
 
-    // --- NOWE: Stan wyszukiwania ---
+    // --- Search state ---
     bool showSearch = false;
     char searchBuf[256] = ""; 
-    bool searchFocus = false; // Czy ustawić focus na pole tekstowe
+    bool searchFocus = false;
     int searchMatchCount = 0;
     int searchMatchIndex = 0;
 
-    // --- NOWE: LSP ---
-    struct Diagnostic {
-        int line;
-        std::string message;
-        int severity;
-    };
-    std::vector<Diagnostic> lspDiagnostics;
+    // --- LSP Diagnostics ---
+    std::vector<LSPDiagnostic> lspDiagnostics;
 
-    // --- NOWE: Autouzupełnianie z płynną pamięcią ---
+    // --- Autocomplete ---
     struct CompletionItem {
         std::string label;
         std::string detail;
         std::string insertText;
     };
+
 
     struct AutocompleteState {
         std::mutex mutex;
