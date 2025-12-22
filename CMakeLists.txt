@@ -53,6 +53,7 @@ add_executable(Fin
     src/Compiler.cpp
     src/ThemeManager.cpp
     src/LSPClient.cpp
+    src/Terminal.cpp
 )
 
 target_include_directories(Fin PRIVATE 

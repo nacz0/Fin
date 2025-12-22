@@ -12,6 +12,7 @@
 #include "Compiler.h"    // Parsowanie błędów GCC
 #include "ThemeManager.h"
 #include "LSPClient.h"
+#include "Terminal.h"
 #include <mutex>
 // ---------------------------
 
@@ -231,6 +232,86 @@ void ShowConsole(bool isCompiling, const std::string& compilationOutput, std::ve
     ImGui::End();
 }
 
+void ShowTerminal(Terminal& terminal) {
+    if (!ImGui::Begin("Terminal")) {
+        ImGui::End();
+        return;
+    }
+    
+    static std::string history, prompt;
+    static std::string totalOutput;
+    
+    std::string newOutput = terminal.GetOutput();
+    if (!newOutput.empty()) {
+        totalOutput += newOutput;
+        // Limit output size
+        if (totalOutput.size() > 100000) {
+            totalOutput = totalOutput.substr(totalOutput.size() - 50000);
+        }
+        
+        // Update history and prompt ONLY when new data arrives
+        size_t lastNewline = totalOutput.find_last_of('\n');
+        if (lastNewline != std::string::npos) {
+            history = totalOutput.substr(0, lastNewline + 1);
+            prompt = totalOutput.substr(lastNewline + 1);
+        } else {
+            history.clear();
+            prompt = totalOutput;
+        }
+    }
+
+    // Terminal background
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+    
+    // Single scrolling region
+    ImGui::BeginChild("TerminalScrollingRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+    
+    if (!history.empty()) {
+        ImGui::TextUnformatted(history.c_str());
+    }
+
+    // Render prompt and input on the same line
+    ImGui::TextUnformatted(prompt.c_str());
+    ImGui::SameLine(0, 0);
+
+    // Input field styling (Native Look - Inline)
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+
+    static char inputBuf[512] = "";
+    bool reclaim_focus = false;
+    
+    ImGui::PushItemWidth(-1);
+    if (ImGui::InputText("##TerminalInput", inputBuf, IM_ARRAYSIZE(inputBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+        terminal.SendInput(inputBuf);
+        inputBuf[0] = '\0';
+        reclaim_focus = true;
+    }
+    
+    // Aggressive Focus 
+    if (reclaim_focus || (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsAnyItemActive())) {
+        ImGui::SetKeyboardFocusHere(-1);
+    }
+    
+    ImGui::PopItemWidth();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+
+    // Always stay at bottom
+    ImGui::SetScrollHereY(1.0f);
+        
+    ImGui::EndChild();
+    
+    ImGui::PopStyleVar(1);
+    ImGui::PopStyleColor(1);
+
+    ImGui::End();
+}
+
 void RenderAutocompletePopup(EditorTab& tab, float textScale, LSPClient& lsp) {
     if (!lsp.IsRunning() || !tab.acState->show || tab.acState->items.empty()) {
         tab.acState->show = false;
@@ -279,16 +360,38 @@ int main(int, char**) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     
-    // --- INICJALIZACJA LSP ---
+    // --- INICJALIZACJA LSP I TERMINALA ---
     LSPClient lsp;
+    Terminal terminal;
     std::mutex diagMutex;
+
+    // Start processes immediately
     if (config.autocompleteEnabled) {
         if (lsp.Start()) {
             lsp.Initialize(fs::current_path().string());
-        } else {
-            std::cerr << "BLAD: Nie udalo sie uruchomic clangd! Upewnij sie, ze jest w PATH." << std::endl;
         }
     }
+    terminal.Start();
+
+    // --- BACKGROUND LOADING (SESJA) ---
+    bool isStartingUp = true;
+    std::future<std::vector<std::unique_ptr<EditorTab>>> backgroundTabs;
+    backgroundTabs = std::async(std::launch::async, [&config]() {
+        std::vector<std::unique_ptr<EditorTab>> loaded;
+        for (const auto& filePath : config.openFiles) {
+            if (fs::exists(filePath)) {
+                auto nt = std::make_unique<EditorTab>();
+                nt->configRef = &config;
+                nt->name = fs::path(filePath).filename().string();
+                nt->path = filePath;
+                nt->editor.SetText(OpenFile(filePath));
+                ThemeManager::ApplyTheme(config.theme, *nt);
+                loaded.push_back(std::move(nt));
+            }
+        }
+        return loaded;
+    });
+
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; 
 
@@ -324,31 +427,24 @@ int main(int, char**) {
     std::future<std::string> compilationTask; 
     bool isCompiling = false;
 
-    // Odtwarzanie sesji
     fs::path currentPath = fs::exists(config.lastDirectory) ? config.lastDirectory : fs::current_path();
-    for (const auto& filePath : config.openFiles) {
-        if (fs::exists(filePath)) {
-            auto nt = std::make_unique<EditorTab>();
-            nt->configRef = &config;
-            nt->name = fs::path(filePath).filename().string();
-            nt->path = filePath;
-            nt->editor.SetText(OpenFile(filePath));
-            
-            // Aplikacja zapisanego motywu
-            ThemeManager::ApplyTheme(config.theme, *nt);
-
-            if (lsp.IsRunning()) lsp.DidOpen(filePath, nt->editor.GetText());
-            tabs.push_back(std::move(nt));
-        }
-    }
-    if (config.activeTabIndex >= 0 && config.activeTabIndex < (int)tabs.size()) {
-        activeTab = config.activeTabIndex;
-        nextTabToFocus = activeTab;
-    }
 
     // --- PĘTLA GŁÓWNA ---
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        // Obsługa zakończenia ładowania w tle
+        if (isStartingUp && backgroundTabs.valid() && backgroundTabs.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            tabs = backgroundTabs.get();
+            for (auto& t : tabs) {
+                if (lsp.IsRunning() && !t->path.empty()) lsp.DidOpen(t->path, t->editor.GetText());
+            }
+            if (config.activeTabIndex >= 0 && config.activeTabIndex < (int)tabs.size()) {
+                activeTab = config.activeTabIndex;
+                nextTabToFocus = activeTab;
+            }
+            isStartingUp = false;
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -562,8 +658,10 @@ int main(int, char**) {
                         // Logika przed renderem (Backspace, Auto-domykanie)
                         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
                             HandlePreRenderLogic(tabs[i]->editor, config);
-                            HandleAutocompleteLogic(*tabs[i], lsp, config);
                         }
+                        // [FIX] Wywołujemy poza focus block, aby logika mogła sama wykryć utratę focusu i odblokować edytor
+                        HandleAutocompleteLogic(*tabs[i], lsp, config);
+
                             
                         // Główny komponent edytora
                         tabs[i]->editor.Render("Editor", ImVec2(avail.x, avail.y - 30 * textScale));
@@ -608,6 +706,9 @@ int main(int, char**) {
         ImGui::End();
         // 3. KONSOLA
         ShowConsole(isCompiling, compilationOutput, errorList, tabs, nextTabToFocus);
+
+        // 4. TERMINAL
+        ShowTerminal(terminal);
 
         // Renderowanie klatki
         ImGui::Render();

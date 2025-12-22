@@ -399,6 +399,13 @@ void HandleAutocompleteLogic(EditorTab& tab, LSPClient& lsp, const AppConfig& co
 
     // 2. Obsługa nawigacji gdy popup jest otwarty
     if (tab.acState->show && !tab.acState->items.empty()) {
+        // [FIX] Jeśli okno edytora nie jest aktywne, zamykamy popup, aby nie blokować klawiatury na stałe
+        if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
+            tab.acState->show = false;
+            editor.SetHandleKeyboardInputs(true);
+            return;
+        }
+
         // Jeśli kursor się przesunął w bok/górę/dół (poza te same współrzędne), zamknij popup
         if (pos.mLine != tab.acState->coord.mLine || pos.mColumn != tab.acState->coord.mColumn) {
             tab.acState->show = false;
