@@ -34,7 +34,7 @@ bool LSPClient::Start(const std::string& clangdPath) {
 
     ZeroMemory(&m_pi, sizeof(PROCESS_INFORMATION));
 
-    std::string cmd = clangdPath + " --log=error";
+    std::string cmd = "\"" + clangdPath + "\" --log=error --background-index --query-driver=* --header-insertion=never";
     if (!CreateProcessA(NULL, (LPSTR)cmd.c_str(), NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &siStartInfo, &m_pi)) {
         return false;
     }
@@ -99,7 +99,10 @@ void LSPClient::Initialize(const std::string& rootPath) {
         {"processId", GetCurrentProcessId()},
         {"rootPath", path},
         {"rootUri", "file:///" + path},
-        {"capabilities", json::object()}
+        {"capabilities", json::object()},
+        {"initializationOptions", {
+            {"fallbackFlags", json::array({"-std=c++20", "-xc++"})}
+        }}
     };
     SendRequest("initialize", params);
     SendNotification("initialized", json::object());
@@ -109,6 +112,10 @@ void LSPClient::DidOpen(const std::string& uri, const std::string& text) {
     std::string path = uri;
     std::replace(path.begin(), path.end(), '\\', '/');
     std::cout << "[LSP] DidOpen: file:///" << path << " (" << text.length() << " bytes)" << std::endl;
+    {
+        std::lock_guard<std::mutex> lock(m_documentVersionsMutex);
+        m_documentVersions[path] = 1;
+    }
     json params = {
         {"textDocument", {
             {"uri", "file:///" + path},
@@ -123,10 +130,20 @@ void LSPClient::DidOpen(const std::string& uri, const std::string& text) {
 void LSPClient::DidChange(const std::string& uri, const std::string& text) {
     std::string path = uri;
     std::replace(path.begin(), path.end(), '\\', '/');
+    int nextVersion = 2;
+    {
+        std::lock_guard<std::mutex> lock(m_documentVersionsMutex);
+        int& currentVersion = m_documentVersions[path];
+        if (currentVersion <= 0) {
+            currentVersion = 1;
+        }
+        currentVersion += 1;
+        nextVersion = currentVersion;
+    }
     json params = {
         {"textDocument", {
             {"uri", "file:///" + path},
-            {"version", 2} // Uproszczone: wersja powinna rosnąć
+            {"version", nextVersion}
         }},
         {"contentChanges", json::array({{{"text", text}}})}
     };
@@ -303,3 +320,4 @@ void LSPClient::ReadLoop() {
 void LSPClient::SetDiagnosticsCallback(std::function<void(const std::string&, const std::vector<LSPDiagnostic>&)> cb) {
     m_diagCallback = cb;
 }
+

@@ -13,6 +13,7 @@ struct AppConfig {
     int theme = 0; // 0: Dark, 1: Light, 2: RetroBlue
     
     bool autocompleteEnabled = true;
+    bool clangBuildEnabled = true;
     bool autoClosingBrackets = true;
     bool smartIndentEnabled = true;
     bool showSettingsWindow = false;
