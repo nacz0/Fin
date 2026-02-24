@@ -78,11 +78,7 @@ int RunFinApp() {
     float textScale = std::clamp(config.zoom, 0.5f, 3.0f);
     bool layoutInitialized = false;
     bool showSettingsWindow = config.showSettingsWindow;
-    bool showOpenByPathWindow = false;
-    bool showSaveAsWindow = false;
 
-    std::string openPathInput;
-    std::string saveAsPathInput;
     std::string terminalInput;
     std::string terminalHistory;
     std::string statusText = "Gotowy";
@@ -293,6 +289,20 @@ int RunFinApp() {
             return false;
         }
 
+        auto toLowerAscii = [](std::string value) {
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+            return value;
+        };
+        static const std::unordered_set<std::string> kBlockedBinaryExtensions = {
+            ".exe", ".dll", ".lib", ".a", ".obj", ".o", ".so", ".dylib", ".pdb", ".ilk", ".class"};
+        const std::string ext = toLowerAscii(fs::path(normalizedPath).extension().string());
+        if (kBlockedBinaryExtensions.count(ext) > 0) {
+            statusText = "Tego typu pliku nie mozna otworzyc w edytorze: " + normalizedPath;
+            return false;
+        }
+
         for (int i = 0; i < static_cast<int>(docs.size()); ++i) {
             if (docs[i]->path == normalizedPath) {
                 activeTab = i;
@@ -312,6 +322,39 @@ int RunFinApp() {
         return true;
     };
 
+    auto saveTabToPath = [&](DocumentTab& tab, const std::string& targetPath) -> bool {
+        if (targetPath.empty()) {
+            statusText = "Nieprawidlowa sciezka pliku.";
+            return false;
+        }
+
+        const std::string normalizedPath = normalizePath(targetPath);
+        const std::string previousLspPath = ensureLspDocumentPath(tab);
+        tab.path = normalizedPath;
+        tab.lspDocumentPath = normalizedPath;
+        tab.name = fs::path(normalizedPath).filename().string();
+        applyCppSyntaxHighlighting(tab.editor, tab.path, ctx.theme());
+
+        std::string text = tab.editor.getText();
+        SaveFile(tab.path, text);
+        tab.savedText = text;
+        tab.dirty = false;
+
+        if (lspActive) {
+            if (!tab.lspOpened || previousLspPath != tab.lspDocumentPath) {
+                lsp.DidOpen(tab.lspDocumentPath, text);
+                tab.lspOpened = true;
+            } else {
+                lsp.DidChange(tab.lspDocumentPath, text);
+            }
+            tab.lspTextSnapshot = text;
+        }
+
+        currentPath = fs::path(normalizedPath).parent_path();
+        statusText = "Zapisano: " + tab.path;
+        return true;
+    };
+
     auto saveActiveTab = [&]() {
         clampActiveTab();
         if (activeTab < 0) {
@@ -321,16 +364,15 @@ int RunFinApp() {
 
         DocumentTab& tab = *docs[activeTab];
         if (tab.path.empty()) {
-            saveAsPathInput = tab.name;
-            showSaveAsWindow = true;
+            const std::string chosenPath = ShowSaveFileDialog(tab.name, currentPath.string());
+            if (chosenPath.empty()) {
+                return;
+            }
+            (void)saveTabToPath(tab, chosenPath);
             return;
         }
 
-        std::string text = tab.editor.getText();
-        SaveFile(tab.path, text);
-        tab.savedText = text;
-        tab.dirty = false;
-        statusText = "Zapisano: " + tab.path;
+        (void)saveTabToPath(tab, tab.path);
     };
 
     auto runBuild = [&]() {
@@ -341,7 +383,6 @@ int RunFinApp() {
 
         DocumentTab& tab = *docs[activeTab];
         if (tab.path.empty()) {
-            showSaveAsWindow = true;
             statusText = "Najpierw zapisz plik.";
             return;
         }
@@ -664,6 +705,7 @@ int RunFinApp() {
     bool pendingMenuBuild = false;
     bool pendingMenuAutocomplete = false;
     bool pendingThemeChange = false;
+    std::string pendingDockTabFocusId;
 
     menuBar.clear();
 
@@ -685,12 +727,38 @@ int RunFinApp() {
     menuBar.addMenu("Buduj", buildItems);
 
     std::vector<fst::MenuItem> viewItems;
-    viewItems.push_back(fst::MenuItem::checkbox("settings", "Ustawienia", &showSettingsWindow));
+    viewItems.emplace_back("view_explorer", "Eksplorator", [&]() { pendingDockTabFocusId = "Eksplorator"; });
+    viewItems.emplace_back("view_editor", "Edytor", [&]() { pendingDockTabFocusId = "Edytor"; });
+    viewItems.emplace_back("view_console", "Konsola", [&]() { pendingDockTabFocusId = "Konsola"; });
+    viewItems.emplace_back("view_terminal", "Terminal", [&]() { pendingDockTabFocusId = "Terminal"; });
+    viewItems.emplace_back("view_settings", "Ustawienia", [&]() {
+        showSettingsWindow = true;
+        pendingDockTabFocusId = "Ustawienia";
+    });
     viewItems.push_back(fst::MenuItem::separator());
     viewItems.emplace_back("theme_dark", "Motyw: Ciemny", [&]() { config.theme = 0; pendingThemeChange = true; });
     viewItems.emplace_back("theme_light", "Motyw: Jasny", [&]() { config.theme = 1; pendingThemeChange = true; });
     viewItems.emplace_back("theme_retro", "Motyw: Retro", [&]() { config.theme = 2; pendingThemeChange = true; });
     menuBar.addMenu("Widok", viewItems);
+
+    const auto focusDockTab = [&](const std::string& windowTitle) {
+        if (windowTitle.empty()) {
+            return;
+        }
+
+        const fst::WidgetId windowId = ctx.makeId(windowTitle);
+        fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
+        if (!node) {
+            return;
+        }
+
+        const auto it = std::find(node->dockedWindows.begin(), node->dockedWindows.end(), windowId);
+        if (it == node->dockedWindows.end()) {
+            return;
+        }
+
+        node->selectedTabIndex = static_cast<int>(std::distance(node->dockedWindows.begin(), it));
+    };
 
     for (const std::string& filePath : config.openFiles) {
         openDocument(filePath);
@@ -718,7 +786,23 @@ int RunFinApp() {
             statusText = "Kompilacja zakonczona.";
         }
 
-        terminalHistory += terminal.GetOutput();
+        std::string terminalChunk = terminal.GetOutput();
+        if (!terminalChunk.empty()) {
+            std::string normalizedChunk;
+            normalizedChunk.reserve(terminalChunk.size());
+            for (size_t i = 0; i < terminalChunk.size(); ++i) {
+                const char ch = terminalChunk[i];
+                if (ch == '\r') {
+                    if (i + 1 < terminalChunk.size() && terminalChunk[i + 1] == '\n') {
+                        continue;
+                    }
+                    normalizedChunk.push_back('\n');
+                    continue;
+                }
+                normalizedChunk.push_back(ch);
+            }
+            terminalHistory += normalizedChunk;
+        }
         trimBuffer(terminalHistory, 200000);
 
         {
@@ -797,7 +881,10 @@ int RunFinApp() {
             closeCompletionPopup();
         }
         if (actionOpen) {
-            showOpenByPathWindow = true;
+            const std::string chosenPath = ShowOpenFileDialog(currentPath.string());
+            if (!chosenPath.empty() && openDocument(chosenPath)) {
+                currentPath = fs::path(normalizePath(chosenPath)).parent_path();
+            }
             closeCompletionPopup();
         }
         if (actionSave) {
@@ -828,8 +915,6 @@ int RunFinApp() {
             fst::DockBuilder::DockWindow(ctx, "Konsola", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Terminal", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Ustawienia", centerNode);
-            fst::DockBuilder::DockWindow(ctx, "Szybkie otwarcie", centerNode);
-            fst::DockBuilder::DockWindow(ctx, "Zapisz jako", centerNode);
 
             fst::DockBuilder::Finish();
             layoutInitialized = true;
@@ -837,6 +922,10 @@ int RunFinApp() {
 
         fst::Rect dockArea(0.0f, menuBarHeight, windowW, windowH - menuBarHeight - statusBarHeight);
         fst::DockSpace(ctx, "##MainDockSpace", dockArea);
+        if (!pendingDockTabFocusId.empty()) {
+            focusDockTab(pendingDockTabFocusId);
+            pendingDockTabFocusId.clear();
+        }
 
         RenderExplorerPanel(ctx, currentPath, openDocument);
 
@@ -870,9 +959,6 @@ int RunFinApp() {
         auto applyEditorAssists = [&]() {
             clampActiveTab();
             if (activeTab < 0 || activeTab >= static_cast<int>(docs.size())) {
-                return;
-            }
-            if (showOpenByPathWindow || showSaveAsWindow) {
                 return;
             }
             if (input.modifiers().ctrl || input.modifiers().alt || input.modifiers().super) {
@@ -1127,8 +1213,9 @@ int RunFinApp() {
                     const float maxScroll = std::max(0.0f, totalHeight - listRect.height());
                     completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
 
-                    dl.addRectFilled(listRect, theme.colors.inputBackground, theme.metrics.borderRadiusSmall);
-                    dl.addRect(listRect, theme.colors.inputBorder, theme.metrics.borderRadiusSmall);
+                    const float listRadius = std::max(2.0f, theme.metrics.borderRadiusSmall - 2.0f);
+                    const fst::Color listFillColor = theme.colors.inputBackground.darker(0.06f);
+                    dl.addRectFilled(listRect, listFillColor, listRadius);
 
                     int hoveredIndex = -1;
                     dl.pushClipRect(contentRect);
@@ -1288,78 +1375,6 @@ int RunFinApp() {
             input.isMousePressedRaw(fst::MouseButton::Left)) {
             if (!completionWindowBounds.contains(input.mousePos())) {
                 closeCompletionPopup();
-            }
-        }
-
-        if (showOpenByPathWindow) {
-            fst::DockableWindowOptions openOptions;
-            openOptions.open = &showOpenByPathWindow;
-            if (fst::BeginDockableWindow(ctx, "Szybkie otwarcie", openOptions)) {
-                const fst::Rect bounds = ctx.layout().currentBounds();
-                ctx.layout().beginContainer(bounds);
-
-                fst::TextInputOptions pathOptions;
-                pathOptions.style = fst::Style().withWidth(std::max(160.0f, bounds.width() - 20.0f));
-                (void)fst::TextInput(ctx, "open_path", openPathInput, pathOptions);
-
-                fst::BeginHorizontal(ctx, 8.0f);
-                if (fst::Button(ctx, "Otworz") && openDocument(openPathInput)) {
-                    showOpenByPathWindow = false;
-                }
-                if (fst::Button(ctx, "Anuluj")) {
-                    showOpenByPathWindow = false;
-                }
-                fst::EndHorizontal(ctx);
-
-                ctx.layout().endContainer();
-                fst::EndDockableWindow(ctx);
-            }
-        }
-
-        if (showSaveAsWindow) {
-            fst::DockableWindowOptions saveOptions;
-            saveOptions.open = &showSaveAsWindow;
-            if (fst::BeginDockableWindow(ctx, "Zapisz jako", saveOptions)) {
-                const fst::Rect bounds = ctx.layout().currentBounds();
-                ctx.layout().beginContainer(bounds);
-
-                fst::TextInputOptions pathOptions;
-                pathOptions.style = fst::Style().withWidth(std::max(160.0f, bounds.width() - 20.0f));
-                (void)fst::TextInput(ctx, "save_as_path", saveAsPathInput, pathOptions);
-
-                fst::BeginHorizontal(ctx, 8.0f);
-                if (fst::Button(ctx, "Zapisz")) {
-                    clampActiveTab();
-                    if (activeTab >= 0 && !saveAsPathInput.empty()) {
-                        const std::string previousLspPath = ensureLspDocumentPath(*docs[activeTab]);
-                        docs[activeTab]->path = normalizePath(saveAsPathInput);
-                        docs[activeTab]->lspDocumentPath = docs[activeTab]->path;
-                        docs[activeTab]->name = fs::path(docs[activeTab]->path).filename().string();
-                        applyCppSyntaxHighlighting(docs[activeTab]->editor, docs[activeTab]->path, ctx.theme());
-                        std::string text = docs[activeTab]->editor.getText();
-                        SaveFile(docs[activeTab]->path, text);
-                        docs[activeTab]->savedText = text;
-                        docs[activeTab]->dirty = false;
-
-                        if (lspActive) {
-                            if (!docs[activeTab]->lspOpened || previousLspPath != docs[activeTab]->lspDocumentPath) {
-                                lsp.DidOpen(docs[activeTab]->lspDocumentPath, text);
-                                docs[activeTab]->lspOpened = true;
-                            } else {
-                                lsp.DidChange(docs[activeTab]->lspDocumentPath, text);
-                            }
-                            docs[activeTab]->lspTextSnapshot = text;
-                        }
-                        showSaveAsWindow = false;
-                    }
-                }
-                if (fst::Button(ctx, "Anuluj")) {
-                    showSaveAsWindow = false;
-                }
-                fst::EndHorizontal(ctx);
-
-                ctx.layout().endContainer();
-                fst::EndDockableWindow(ctx);
             }
         }
 
