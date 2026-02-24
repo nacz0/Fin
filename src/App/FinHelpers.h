@@ -17,6 +17,7 @@ struct ExplorerEntry {
 void trimBuffer(std::string& text, size_t maxBytes);
 
 void applyTheme(fst::Context& ctx, int themeId);
+bool isCppLikePath(const std::string& pathOrName);
 void applyCppSyntaxHighlighting(fst::TextEditor& editor, const std::string& pathOrName, const fst::Theme& theme);
 std::vector<fst::TextSegment> colorizeCppSnippet(const std::string& text, const fst::Theme& theme);
 

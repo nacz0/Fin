@@ -39,7 +39,7 @@ std::string toLowerAscii(std::string value) {
     return value;
 }
 
-bool isCppLikePath(const std::string& pathOrName) {
+bool isCppLikePathInternal(const std::string& pathOrName) {
     static const std::unordered_set<std::string> kExtensions = {
         ".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".ipp", ".ixx", ".inl", ".tpp"};
 
@@ -300,6 +300,10 @@ void applyTheme(fst::Context& ctx, int themeId) {
         return;
     }
     ctx.setTheme(fst::Theme::dark());
+}
+
+bool isCppLikePath(const std::string& pathOrName) {
+    return isCppLikePathInternal(pathOrName);
 }
 
 void applyCppSyntaxHighlighting(fst::TextEditor& editor, const std::string& pathOrName, const fst::Theme& theme) {

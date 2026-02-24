@@ -118,7 +118,24 @@ int RunFinApp() {
         }
     };
 
+    auto toLowerExtAscii = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return value;
+    };
+
+    auto isLspCppPath = [&](const std::string& pathOrName) {
+        return toLowerExtAscii(fs::path(pathOrName).extension().string()) == ".cpp";
+    };
+
     auto ensureLspDocumentPath = [&](DocumentTab& tab) -> const std::string& {
+        const std::string sourcePath = tab.path.empty() ? tab.name : tab.path;
+        if (!isLspCppPath(sourcePath)) {
+            tab.lspDocumentPath.clear();
+            return tab.lspDocumentPath;
+        }
+
         if (!tab.path.empty()) {
             tab.lspDocumentPath = tab.path;
             return tab.lspDocumentPath;
@@ -143,6 +160,9 @@ int RunFinApp() {
 
         const std::string& lspDocumentPath = ensureLspDocumentPath(tab);
         if (lspDocumentPath.empty()) {
+            tab.lspOpened = false;
+            tab.lspTextSnapshot.clear();
+            tab.lspDiagnostics.clear();
             return;
         }
 
@@ -203,6 +223,9 @@ int RunFinApp() {
 
         lsp.SetDiagnosticsCallback([&](const std::string& uri, const std::vector<LSPDiagnostic>& diags) {
             const std::string path = uriToPath(uri);
+            if (!isLspCppPath(path)) {
+                return;
+            }
             std::lock_guard<std::mutex> lock(lspMutex);
             pendingDiagnostics[path] = diags;
         });
@@ -331,8 +354,8 @@ int RunFinApp() {
         const std::string normalizedPath = normalizePath(targetPath);
         const std::string previousLspPath = ensureLspDocumentPath(tab);
         tab.path = normalizedPath;
-        tab.lspDocumentPath = normalizedPath;
         tab.name = fs::path(normalizedPath).filename().string();
+        const std::string& lspDocumentPath = ensureLspDocumentPath(tab);
         applyCppSyntaxHighlighting(tab.editor, tab.path, ctx.theme());
 
         std::string text = tab.editor.getText();
@@ -340,12 +363,16 @@ int RunFinApp() {
         tab.savedText = text;
         tab.dirty = false;
 
-        if (lspActive) {
-            if (!tab.lspOpened || previousLspPath != tab.lspDocumentPath) {
-                lsp.DidOpen(tab.lspDocumentPath, text);
+        if (lspDocumentPath.empty()) {
+            tab.lspOpened = false;
+            tab.lspTextSnapshot.clear();
+            tab.lspDiagnostics.clear();
+        } else if (lspActive) {
+            if (!tab.lspOpened || previousLspPath != lspDocumentPath) {
+                lsp.DidOpen(lspDocumentPath, text);
                 tab.lspOpened = true;
             } else {
-                lsp.DidChange(tab.lspDocumentPath, text);
+                lsp.DidChange(lspDocumentPath, text);
             }
             tab.lspTextSnapshot = text;
         }
@@ -581,7 +608,7 @@ int RunFinApp() {
         std::vector<LSPCompletionItem> localFallback = collectLocalCompletions(tab, cursor);
 
         bool canUseLsp = false;
-        if (config.autocompleteEnabled) {
+        if (config.autocompleteEnabled && !lspDocumentPath.empty()) {
             if (!lspActive && !startLsp()) {
                 canUseLsp = false;
             } else {
