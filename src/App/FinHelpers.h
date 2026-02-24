@@ -26,6 +26,7 @@ std::string uriToPath(const std::string& uri);
 std::vector<ExplorerEntry> listEntries(const std::filesystem::path& root);
 
 size_t offsetFromPosition(const std::string& text, const fst::TextPosition& pos);
+fst::TextPosition positionFromOffset(const std::string& text, size_t offset);
 std::string insertAtPosition(
     const std::string& text,
     const fst::TextPosition& pos,

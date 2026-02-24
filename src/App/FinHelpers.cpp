@@ -394,6 +394,20 @@ size_t offsetFromPosition(const std::string& text, const fst::TextPosition& pos)
     return lineStart + col;
 }
 
+fst::TextPosition positionFromOffset(const std::string& text, size_t offset) {
+    fst::TextPosition pos{0, 0};
+    const size_t clampedOffset = std::min(offset, text.size());
+    for (size_t i = 0; i < clampedOffset; ++i) {
+        if (text[i] == '\n') {
+            ++pos.line;
+            pos.column = 0;
+        } else {
+            ++pos.column;
+        }
+    }
+    return pos;
+}
+
 std::string insertAtPosition(
     const std::string& text,
     const fst::TextPosition& pos,
