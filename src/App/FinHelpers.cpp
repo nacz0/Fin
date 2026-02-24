@@ -1,0 +1,380 @@
+#include "App/FinHelpers.h"
+
+#include <algorithm>
+#include <cctype>
+#include <system_error>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+namespace fin {
+
+namespace {
+
+struct CppSyntaxPalette {
+    fst::Color keyword;
+    fst::Color type;
+    fst::Color number;
+    fst::Color stringLiteral;
+    fst::Color comment;
+    fst::Color preprocessor;
+    fst::Color function;
+};
+
+bool isIdentifierStart(char ch) {
+    const unsigned char c = static_cast<unsigned char>(ch);
+    return std::isalpha(c) || ch == '_';
+}
+
+bool isIdentifierChar(char ch) {
+    const unsigned char c = static_cast<unsigned char>(ch);
+    return std::isalnum(c) || ch == '_';
+}
+
+std::string toLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool isCppLikePath(const std::string& pathOrName) {
+    static const std::unordered_set<std::string> kExtensions = {
+        ".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".ipp", ".ixx", ".inl", ".tpp"};
+
+    const std::string ext = toLowerAscii(fs::path(pathOrName).extension().string());
+    return kExtensions.count(ext) > 0;
+}
+
+float luminance(const fst::Color& color) {
+    return 0.2126f * static_cast<float>(color.r) +
+           0.7152f * static_cast<float>(color.g) +
+           0.0722f * static_cast<float>(color.b);
+}
+
+CppSyntaxPalette buildPalette(const fst::Theme& theme) {
+    const bool darkBackground = luminance(theme.colors.windowBackground) < 128.0f;
+    if (darkBackground) {
+        return {
+            fst::Color::fromHex(0x82aaff), // keyword
+            fst::Color::fromHex(0x4ec9b0), // type
+            fst::Color::fromHex(0xb5cea8), // number
+            fst::Color::fromHex(0xce9178), // string
+            fst::Color::fromHex(0x6a9955), // comment
+            fst::Color::fromHex(0xc586c0), // preprocessor
+            fst::Color::fromHex(0xdcdcaa)  // function
+        };
+    }
+
+    return {
+        fst::Color::fromHex(0x1d4ed8), // keyword
+        fst::Color::fromHex(0x0f766e), // type
+        fst::Color::fromHex(0x9a3412), // number
+        fst::Color::fromHex(0xb45309), // string
+        fst::Color::fromHex(0x15803d), // comment
+        fst::Color::fromHex(0x7e22ce), // preprocessor
+        fst::Color::fromHex(0x92400e)  // function
+    };
+}
+
+std::vector<fst::TextSegment> colorizeCppLine(const std::string& text, const CppSyntaxPalette& palette) {
+    static const std::unordered_set<std::string> kKeywords = {
+        "alignas",     "alignof",      "asm",          "auto",         "break",        "case",
+        "catch",       "class",        "const",        "consteval",    "constexpr",    "constinit",
+        "continue",    "co_await",     "co_return",    "co_yield",     "decltype",     "default",
+        "delete",      "do",           "else",         "enum",         "explicit",     "export",
+        "extern",      "false",        "final",        "for",          "friend",       "goto",
+        "if",          "import",       "inline",       "module",       "mutable",      "namespace",
+        "new",         "noexcept",     "nullptr",      "operator",     "override",     "private",
+        "protected",   "public",       "register",     "requires",     "return",       "sizeof",
+        "static",      "static_assert","struct",       "switch",       "template",     "this",
+        "thread_local","throw",        "true",         "try",          "typedef",      "typename",
+        "union",       "using",        "virtual",      "volatile",     "while"};
+
+    static const std::unordered_set<std::string> kTypeWords = {
+        "bool",     "char",      "char8_t",   "char16_t", "char32_t", "double",     "float",
+        "int",      "long",      "short",     "signed",   "unsigned", "void",       "wchar_t",
+        "size_t",   "ptrdiff_t", "uint8_t",   "uint16_t", "uint32_t", "uint64_t",   "int8_t",
+        "int16_t",  "int32_t",   "int64_t",   "std",      "string"};
+
+    static const std::unordered_set<std::string> kControlWords = {
+        "if", "for", "while", "switch", "catch", "return", "sizeof", "decltype"};
+
+    std::vector<fst::TextSegment> segments;
+    const int lineLength = static_cast<int>(text.size());
+    if (lineLength == 0) {
+        return segments;
+    }
+
+    const size_t firstCode = text.find_first_not_of(" \t");
+    if (firstCode != std::string::npos && text[firstCode] == '#') {
+        segments.push_back({static_cast<int>(firstCode), lineLength, palette.preprocessor});
+        return segments;
+    }
+
+    int i = 0;
+    while (i < lineLength) {
+        const char ch = text[i];
+
+        if (ch == '/' && i + 1 < lineLength && text[i + 1] == '/') {
+            segments.push_back({i, lineLength, palette.comment});
+            break;
+        }
+
+        if (ch == '/' && i + 1 < lineLength && text[i + 1] == '*') {
+            int end = lineLength;
+            const size_t close = text.find("*/", static_cast<size_t>(i + 2));
+            if (close != std::string::npos) {
+                end = static_cast<int>(close + 2);
+            }
+            segments.push_back({i, end, palette.comment});
+            i = end;
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            const char quote = ch;
+            int end = i + 1;
+            while (end < lineLength) {
+                if (text[end] == '\\' && end + 1 < lineLength) {
+                    end += 2;
+                    continue;
+                }
+                if (text[end] == quote) {
+                    ++end;
+                    break;
+                }
+                ++end;
+            }
+            segments.push_back({i, std::min(end, lineLength), palette.stringLiteral});
+            i = end;
+            continue;
+        }
+
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isdigit(uch) || (ch == '.' && i + 1 < lineLength && std::isdigit(static_cast<unsigned char>(text[i + 1])))) {
+            int end = i;
+            if (ch == '0' && i + 1 < lineLength && (text[i + 1] == 'x' || text[i + 1] == 'X')) {
+                end += 2;
+                while (end < lineLength && std::isxdigit(static_cast<unsigned char>(text[end]))) {
+                    ++end;
+                }
+            } else {
+                bool seenDot = (ch == '.');
+                while (end < lineLength) {
+                    const char n = text[end];
+                    const unsigned char un = static_cast<unsigned char>(n);
+                    if (std::isdigit(un)) {
+                        ++end;
+                        continue;
+                    }
+                    if (n == '.' && !seenDot) {
+                        seenDot = true;
+                        ++end;
+                        continue;
+                    }
+                    if ((n == 'e' || n == 'E') && end + 1 < lineLength) {
+                        int expPos = end + 1;
+                        if (text[expPos] == '+' || text[expPos] == '-') {
+                            ++expPos;
+                        }
+                        if (expPos < lineLength && std::isdigit(static_cast<unsigned char>(text[expPos]))) {
+                            end = expPos + 1;
+                            while (end < lineLength && std::isdigit(static_cast<unsigned char>(text[end]))) {
+                                ++end;
+                            }
+                            continue;
+                        }
+                    }
+                    break;
+                }
+            }
+            while (end < lineLength && std::isalpha(static_cast<unsigned char>(text[end]))) {
+                ++end;
+            }
+            segments.push_back({i, end, palette.number});
+            i = end;
+            continue;
+        }
+
+        if (isIdentifierStart(ch)) {
+            int end = i + 1;
+            while (end < lineLength && isIdentifierChar(text[end])) {
+                ++end;
+            }
+
+            const std::string word = text.substr(static_cast<size_t>(i), static_cast<size_t>(end - i));
+            if (kTypeWords.count(word) > 0) {
+                segments.push_back({i, end, palette.type});
+            } else if (kKeywords.count(word) > 0) {
+                segments.push_back({i, end, palette.keyword});
+            } else {
+                int probe = end;
+                while (probe < lineLength && (text[probe] == ' ' || text[probe] == '\t')) {
+                    ++probe;
+                }
+                if (probe < lineLength && text[probe] == '(' && kControlWords.count(word) == 0) {
+                    segments.push_back({i, end, palette.function});
+                }
+            }
+            i = end;
+            continue;
+        }
+
+        ++i;
+    }
+
+    return segments;
+}
+
+} // namespace
+
+void trimBuffer(std::string& text, size_t maxBytes) {
+    if (text.size() <= maxBytes) {
+        return;
+    }
+    text.erase(0, text.size() - maxBytes);
+}
+
+static fst::Theme retroTheme() {
+    fst::Theme theme = fst::Theme::dark();
+    theme.colors.windowBackground = fst::Color::fromHex(0x0b1028);
+    theme.colors.panelBackground = fst::Color::fromHex(0x141c3d);
+    theme.colors.primary = fst::Color::fromHex(0x2459d4);
+    theme.colors.primaryHover = fst::Color::fromHex(0x2d6af8);
+    theme.colors.primaryActive = fst::Color::fromHex(0x1d47aa);
+    theme.colors.text = fst::Color::fromHex(0xe8f0ff);
+    theme.colors.textSecondary = fst::Color::fromHex(0x9fb4df);
+    theme.colors.buttonBackground = fst::Color::fromHex(0x22335f);
+    theme.colors.buttonHover = fst::Color::fromHex(0x29427d);
+    theme.colors.buttonActive = fst::Color::fromHex(0x1a2d56);
+    theme.colors.border = fst::Color::fromHex(0x2f4d8d);
+    theme.colors.dockTabActive = fst::Color::fromHex(0x2d6af8);
+    theme.colors.dockTabInactive = fst::Color::fromHex(0x172445);
+    theme.colors.dockTabHover = fst::Color::fromHex(0x223b70);
+    return theme;
+}
+
+void applyTheme(fst::Context& ctx, int themeId) {
+    if (themeId == 1) {
+        ctx.setTheme(fst::Theme::light());
+        return;
+    }
+    if (themeId == 2) {
+        ctx.setTheme(retroTheme());
+        return;
+    }
+    ctx.setTheme(fst::Theme::dark());
+}
+
+void applyCppSyntaxHighlighting(fst::TextEditor& editor, const std::string& pathOrName, const fst::Theme& theme) {
+    if (!isCppLikePath(pathOrName)) {
+        editor.setStyleProvider({});
+        return;
+    }
+
+    const CppSyntaxPalette palette = buildPalette(theme);
+    editor.setStyleProvider([palette](int, const std::string& lineText) {
+        return colorizeCppLine(lineText, palette);
+    });
+}
+
+std::string normalizePath(const std::string& path) {
+    if (path.empty()) {
+        return path;
+    }
+
+    std::string normalized = fs::path(path).lexically_normal().string();
+    std::replace(normalized.begin(), normalized.end(), '/', '\\');
+    return normalized;
+}
+
+std::string uriToPath(const std::string& uri) {
+    std::string path = uri;
+    if (path.rfind("file:///", 0) == 0) {
+        path = path.substr(8);
+    } else if (path.rfind("file://", 0) == 0) {
+        path = path.substr(7);
+    }
+
+#ifdef _WIN32
+    if (path.size() > 2 && path[0] == '/' && path[2] == ':') {
+        path.erase(path.begin());
+    }
+#endif
+
+    std::replace(path.begin(), path.end(), '/', '\\');
+    return normalizePath(path);
+}
+
+std::vector<ExplorerEntry> listEntries(const fs::path& root) {
+    std::vector<ExplorerEntry> out;
+    std::error_code ec;
+    fs::directory_iterator it(root, ec);
+    if (ec) {
+        return out;
+    }
+
+    for (const fs::directory_entry& entry : it) {
+        std::error_code typeEc;
+        const bool isDir = entry.is_directory(typeEc);
+        if (typeEc) {
+            continue;
+        }
+        out.push_back({entry.path(), entry.path().filename().string(), isDir});
+    }
+
+    std::sort(out.begin(), out.end(), [](const ExplorerEntry& a, const ExplorerEntry& b) {
+        if (a.isDirectory != b.isDirectory) {
+            return a.isDirectory > b.isDirectory;
+        }
+        return a.name < b.name;
+    });
+
+    return out;
+}
+
+size_t offsetFromPosition(const std::string& text, const fst::TextPosition& pos) {
+    size_t i = 0;
+    int line = 0;
+
+    while (i < text.size() && line < pos.line) {
+        if (text[i] == '\n') {
+            line++;
+        }
+        i++;
+    }
+
+    size_t lineStart = i;
+    size_t lineLen = 0;
+    while (lineStart + lineLen < text.size() && text[lineStart + lineLen] != '\n') {
+        lineLen++;
+    }
+
+    size_t col = std::min(static_cast<size_t>(std::max(0, pos.column)), lineLen);
+    return lineStart + col;
+}
+
+std::string insertAtPosition(
+    const std::string& text,
+    const fst::TextPosition& pos,
+    const std::string& insertion,
+    fst::TextPosition& outCursor) {
+    size_t offset = offsetFromPosition(text, pos);
+    std::string result = text;
+    result.insert(offset, insertion);
+
+    outCursor = pos;
+    for (char ch : insertion) {
+        if (ch == '\n') {
+            outCursor.line++;
+            outCursor.column = 0;
+        } else {
+            outCursor.column++;
+        }
+    }
+
+    return result;
+}
+
+} // namespace fin
