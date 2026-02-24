@@ -95,6 +95,11 @@ int RunFinApp() {
     bool completionVisible = false;
     bool completionLoading = false;
     int completionSelected = 0;
+    float completionScrollOffset = 0.0f;
+    bool completionScrollbarDragging = false;
+    float completionScrollbarDragOffset = 0.0f;
+    fst::Key completionRepeatKey = fst::Key::Unknown;
+    float completionRepeatTimer = 0.0f;
     std::vector<LSPCompletionItem> completionItems;
     int completionOwnerTab = -1;
     std::string completionOwnerDocumentPath;
@@ -157,6 +162,11 @@ int RunFinApp() {
         completionLoading = false;
         completionItems.clear();
         completionSelected = 0;
+        completionScrollOffset = 0.0f;
+        completionScrollbarDragging = false;
+        completionScrollbarDragOffset = 0.0f;
+        completionRepeatKey = fst::Key::Unknown;
+        completionRepeatTimer = 0.0f;
         completionOwnerTab = -1;
         completionOwnerDocumentPath.clear();
         std::lock_guard<std::mutex> lock(lspMutex);
@@ -538,6 +548,10 @@ int RunFinApp() {
             completionLoading = false;
             completionItems = localFallback;
             completionSelected = 0;
+            completionScrollOffset = 0.0f;
+            completionScrollbarDragging = false;
+            completionRepeatKey = fst::Key::Unknown;
+            completionRepeatTimer = 0.0f;
             completionOwnerTab = activeTab;
             completionOwnerDocumentPath = lspDocumentPath;
             if (completionOwnerDocumentPath.empty()) {
@@ -550,6 +564,10 @@ int RunFinApp() {
         completionLoading = localFallback.empty();
         completionItems = localFallback;
         completionSelected = 0;
+        completionScrollOffset = 0.0f;
+        completionScrollbarDragging = false;
+        completionRepeatKey = fst::Key::Unknown;
+        completionRepeatTimer = 0.0f;
         completionOwnerTab = activeTab;
         completionOwnerDocumentPath = lspDocumentPath;
         if (completionOwnerDocumentPath.empty()) {
@@ -579,9 +597,48 @@ int RunFinApp() {
 
         DocumentTab& tab = *docs[activeTab];
         fst::TextPosition cursor = tab.editor.cursor();
-        fst::TextPosition newCursor;
         std::string insertion = item.insertText.empty() ? item.label : item.insertText;
-        std::string newText = insertAtPosition(tab.editor.getText(), cursor, insertion, newCursor);
+        std::string currentText = tab.editor.getText();
+        size_t cursorOffset = offsetFromPosition(currentText, cursor);
+        if (cursorOffset > currentText.size()) {
+            cursorOffset = currentText.size();
+        }
+
+        size_t prefixStart = cursorOffset;
+        while (prefixStart > 0) {
+            const char ch = currentText[prefixStart - 1];
+            const unsigned char uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch) || ch == '_') {
+                --prefixStart;
+                continue;
+            }
+            break;
+        }
+
+        const std::string typedPrefix = currentText.substr(prefixStart, cursorOffset - prefixStart);
+        size_t insertionOffset = cursorOffset;
+        if (!typedPrefix.empty() && insertion.rfind(typedPrefix, 0) == 0) {
+            insertionOffset = prefixStart;
+            currentText.erase(prefixStart, cursorOffset - prefixStart);
+        }
+
+        currentText.insert(insertionOffset, insertion);
+        std::string newText = std::move(currentText);
+
+        auto positionFromOffset = [](const std::string& text, size_t offset) {
+            fst::TextPosition pos{0, 0};
+            const size_t clampedOffset = std::min(offset, text.size());
+            for (size_t i = 0; i < clampedOffset; ++i) {
+                if (text[i] == '\n') {
+                    ++pos.line;
+                    pos.column = 0;
+                } else {
+                    ++pos.column;
+                }
+            }
+            return pos;
+        };
+        fst::TextPosition newCursor = positionFromOffset(newText, insertionOffset + insertion.size());
 
         tab.editor.setText(newText);
         tab.editor.setCursor(newCursor);
@@ -680,6 +737,10 @@ int RunFinApp() {
                 completionItems = pendingCompletions;
                 completionLoading = false;
                 completionSelected = completionItems.empty() ? 0 : std::min(completionSelected, static_cast<int>(completionItems.size()) - 1);
+                completionScrollOffset = 0.0f;
+                completionScrollbarDragging = false;
+                completionRepeatKey = fst::Key::Unknown;
+                completionRepeatTimer = 0.0f;
                 pendingCompletionReady = false;
             }
         }
@@ -795,26 +856,78 @@ int RunFinApp() {
             closeTab,
             closeCompletionPopup);
 
-        const auto shouldAutoTriggerCompletion = [&]() -> bool {
-            if (!config.autocompleteEnabled || input.modifiers().ctrl || input.modifiers().alt || input.modifiers().super) {
-                return false;
+        constexpr float completionListHeight = 260.0f;
+        const auto completionItemHeight = [&]() -> float {
+            if (ctx.font()) {
+                return ctx.font()->lineHeight() + ctx.theme().metrics.paddingSmall * 2.0f;
+            }
+            return 24.0f;
+        };
+        const auto keepCompletionSelectionVisible = [&](float itemHeight, float viewHeight) {
+            if (completionItems.empty()) {
+                completionScrollOffset = 0.0f;
+                return;
             }
 
-            const std::string& typed = input.textInput();
-            if (!typed.empty()) {
-                for (char ch : typed) {
-                    const unsigned char uch = static_cast<unsigned char>(ch);
-                    if (std::isalnum(uch) || ch == '_' || ch == '.' || ch == ':') {
-                        return true;
-                    }
+            const float totalHeight = itemHeight * static_cast<float>(completionItems.size());
+            const float maxScroll = std::max(0.0f, totalHeight - viewHeight);
+            completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
+
+            const float selectedTop = completionSelected * itemHeight;
+            const float selectedBottom = selectedTop + itemHeight;
+            if (selectedTop < completionScrollOffset) {
+                completionScrollOffset = selectedTop;
+            } else if (selectedBottom > completionScrollOffset + viewHeight) {
+                completionScrollOffset = selectedBottom - viewHeight;
+            }
+
+            completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
+        };
+
+        const auto shouldRepeatCompletionNav = [&](fst::Key key) -> bool {
+            if (input.isKeyPressed(key)) {
+                completionRepeatKey = key;
+                completionRepeatTimer = 0.35f;
+                return true;
+            }
+
+            if (completionRepeatKey == key && input.isKeyDown(key)) {
+                completionRepeatTimer -= ctx.deltaTime();
+                if (completionRepeatTimer <= 0.0f) {
+                    completionRepeatTimer = 0.05f;
+                    return true;
                 }
             }
 
-            return input.isKeyPressed(fst::Key::Backspace) || input.isKeyPressed(fst::Key::Delete);
+            if (completionRepeatKey == key && !input.isKeyDown(key)) {
+                completionRepeatKey = fst::Key::Unknown;
+                completionRepeatTimer = 0.0f;
+            }
+            return false;
         };
 
-        if (!actionAutocomplete && shouldAutoTriggerCompletion()) {
-            requestCompletionForActive(false);
+        if (completionVisible && !completionLoading && !completionItems.empty()) {
+            completionSelected = std::clamp(completionSelected, 0, static_cast<int>(completionItems.size()) - 1);
+            const float itemHeight = completionItemHeight();
+            bool selectionMovedByKeyboard = false;
+
+            if (shouldRepeatCompletionNav(fst::Key::Down)) {
+                completionSelected = std::min(completionSelected + 1, static_cast<int>(completionItems.size()) - 1);
+                selectionMovedByKeyboard = true;
+            }
+            if (shouldRepeatCompletionNav(fst::Key::Up)) {
+                completionSelected = std::max(completionSelected - 1, 0);
+                selectionMovedByKeyboard = true;
+            }
+            if (selectionMovedByKeyboard) {
+                keepCompletionSelectionVisible(itemHeight, completionListHeight);
+            }
+            if (input.isKeyPressed(fst::Key::Enter) || input.isKeyPressed(fst::Key::KPEnter)) {
+                applyCompletionItem(completionItems[completionSelected]);
+            }
+        } else if (!completionVisible) {
+            completionRepeatKey = fst::Key::Unknown;
+            completionRepeatTimer = 0.0f;
         }
 
         bool completionWindowDrawn = false;
@@ -837,27 +950,165 @@ int RunFinApp() {
                 } else if (completionItems.empty()) {
                     fst::Label(ctx, "Brak podpowiedzi.");
                 } else {
-                    if (!completionItems.empty() && completionItems.front().detail == "local") {
-                        fst::Label(ctx, "Podpowiedzi lokalne");
+                    completionSelected = std::clamp(completionSelected, 0, static_cast<int>(completionItems.size()) - 1);
+                    const fst::Theme& theme = ctx.theme();
+                    fst::Font* font = ctx.font();
+                    fst::DrawList& dl = ctx.drawList();
+                    const float itemHeight = completionItemHeight();
+
+                    const float listWidth = std::max(260.0f, bounds.width() - 20.0f);
+                    const fst::Rect listRect = fst::Allocate(ctx, listWidth, completionListHeight);
+
+                    const float totalHeight = itemHeight * static_cast<float>(completionItems.size());
+                    const bool needsScrollbar = totalHeight > listRect.height();
+                    const float scrollbarWidth = needsScrollbar ? std::max(10.0f, theme.metrics.scrollbarWidth) : 0.0f;
+                    fst::Rect contentRect(listRect.x(), listRect.y(), listRect.width() - scrollbarWidth, listRect.height());
+
+                    const bool listHovered = listRect.contains(input.mousePos()) && !ctx.isOccluded(input.mousePos());
+                    if (listHovered) {
+                        completionScrollOffset -= input.scrollDelta().y * itemHeight;
                     }
-                    int maxShow = std::min(static_cast<int>(completionItems.size()), 30);
-                    for (int i = 0; i < maxShow; ++i) {
-                        bool selected = (i == completionSelected);
-                        std::string detail = completionItems[i].detail.empty() ? std::string() : (" :: " + completionItems[i].detail);
-                        std::string label = completionItems[i].label + detail;
-                        if (fst::Selectable(ctx, label, selected)) {
-                            completionSelected = i;
+                    const float maxScroll = std::max(0.0f, totalHeight - listRect.height());
+                    completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
+
+                    dl.addRectFilled(listRect, theme.colors.inputBackground, theme.metrics.borderRadiusSmall);
+                    dl.addRect(listRect, theme.colors.inputBorder, theme.metrics.borderRadiusSmall);
+
+                    int hoveredIndex = -1;
+                    dl.pushClipRect(contentRect);
+                    for (int i = 0; i < static_cast<int>(completionItems.size()); ++i) {
+                        const float rowY = contentRect.y() + i * itemHeight - completionScrollOffset;
+                        if (rowY + itemHeight < contentRect.y() || rowY > contentRect.bottom()) {
+                            continue;
+                        }
+
+                        const fst::Rect rowRect(contentRect.x(), rowY, contentRect.width(), itemHeight);
+                        const bool selected = (i == completionSelected);
+                        const bool hovered = rowRect.contains(input.mousePos()) && contentRect.contains(input.mousePos()) && !ctx.isOccluded(input.mousePos());
+                        if (hovered) {
+                            hoveredIndex = i;
+                        }
+
+                        if (selected) {
+                            dl.addRectFilled(rowRect, theme.colors.selection);
+                        } else if (hovered) {
+                            dl.addRectFilled(rowRect, theme.colors.selection.withAlpha(static_cast<uint8_t>(90)));
+                        }
+
+                        if (font) {
+                            const LSPCompletionItem& item = completionItems[i];
+                            const float textY = rowRect.y() + (itemHeight - font->lineHeight()) * 0.5f;
+                            float textX = rowRect.x() + theme.metrics.paddingSmall;
+                            const std::string rowText = item.detail.empty() ? item.label : (item.label + " :: " + item.detail);
+                            const std::vector<fst::TextSegment> syntax = colorizeCppSnippet(rowText, theme);
+
+                            auto toRowColor = [&](const fst::Color& base) -> fst::Color {
+                                if (selected) {
+                                    return fst::Color::lerp(base, theme.colors.selectionText, 0.55f);
+                                }
+                                return base;
+                            };
+
+                            int cursor = 0;
+                            const int rowTextLen = static_cast<int>(rowText.size());
+                            for (const auto& seg : syntax) {
+                                const int start = std::clamp(seg.startColumn, 0, rowTextLen);
+                                const int end = std::clamp(seg.endColumn, start, rowTextLen);
+                                if (start > cursor) {
+                                    const std::string plain = rowText.substr(static_cast<size_t>(cursor), static_cast<size_t>(start - cursor));
+                                    dl.addText(font, fst::Vec2(textX, textY), plain, toRowColor(theme.colors.text));
+                                    textX += font->measureText(plain).x;
+                                }
+                                if (end > start) {
+                                    const std::string token = rowText.substr(static_cast<size_t>(start), static_cast<size_t>(end - start));
+                                    dl.addText(font, fst::Vec2(textX, textY), token, toRowColor(seg.color));
+                                    textX += font->measureText(token).x;
+                                }
+                                cursor = end;
+                            }
+
+                            if (cursor < static_cast<int>(rowText.size())) {
+                                const std::string plain = rowText.substr(static_cast<size_t>(cursor));
+                                dl.addText(font, fst::Vec2(textX, textY), plain, toRowColor(theme.colors.text));
+                            }
+                        }
+                    }
+                    dl.popClipRect();
+
+                    if (needsScrollbar) {
+                        const fst::Rect track(listRect.right() - scrollbarWidth, listRect.y(), scrollbarWidth, listRect.height());
+                        const float thumbHeight = std::max(20.0f, (listRect.height() / totalHeight) * listRect.height());
+                        float thumbY = track.y();
+                        if (maxScroll > 0.001f) {
+                            const float t = std::clamp(completionScrollOffset / maxScroll, 0.0f, 1.0f);
+                            thumbY += t * (track.height() - thumbHeight);
+                        }
+                        const fst::Rect thumb(track.x() + 2.0f, thumbY, track.width() - 4.0f, thumbHeight);
+
+                        if (input.isMousePressedRaw(fst::MouseButton::Left) && !ctx.isOccluded(input.mousePos())) {
+                            if (thumb.contains(input.mousePos())) {
+                                completionScrollbarDragging = true;
+                                completionScrollbarDragOffset = input.mousePos().y - thumb.y();
+                            } else if (track.contains(input.mousePos())) {
+                                const float newThumbTop = std::clamp(
+                                    input.mousePos().y - track.y() - thumbHeight * 0.5f,
+                                    0.0f,
+                                    track.height() - thumbHeight);
+                                const float t = (track.height() - thumbHeight) > 0.0f
+                                    ? (newThumbTop / (track.height() - thumbHeight))
+                                    : 0.0f;
+                                completionScrollOffset = t * maxScroll;
+                                completionScrollbarDragging = true;
+                                completionScrollbarDragOffset = thumbHeight * 0.5f;
+                            }
+                        }
+
+                        if (completionScrollbarDragging) {
+                            if (input.isMouseDown(fst::MouseButton::Left)) {
+                                const float newThumbTop = std::clamp(
+                                    input.mousePos().y - track.y() - completionScrollbarDragOffset,
+                                    0.0f,
+                                    track.height() - thumbHeight);
+                                const float t = (track.height() - thumbHeight) > 0.0f
+                                    ? (newThumbTop / (track.height() - thumbHeight))
+                                    : 0.0f;
+                                completionScrollOffset = t * maxScroll;
+                            } else {
+                                completionScrollbarDragging = false;
+                            }
+                        }
+
+                        dl.addRectFilled(track, theme.colors.scrollbarTrack);
+                        const float updatedThumbY = (maxScroll > 0.001f)
+                            ? (track.y() + (completionScrollOffset / maxScroll) * (track.height() - thumbHeight))
+                            : track.y();
+                        const fst::Rect updatedThumb(track.x() + 2.0f, updatedThumbY, track.width() - 4.0f, thumbHeight);
+                        const fst::Color thumbColor = (completionScrollbarDragging || track.contains(input.mousePos()))
+                            ? theme.colors.scrollbarThumbHover
+                            : theme.colors.scrollbarThumb;
+                        dl.addRectFilled(updatedThumb, thumbColor, std::max(2.0f, (scrollbarWidth - 4.0f) * 0.5f));
+                    } else {
+                        completionScrollbarDragging = false;
+                    }
+
+                    if (hoveredIndex >= 0 && input.isMousePressedRaw(fst::MouseButton::Left)) {
+                        completionSelected = hoveredIndex;
+                        applyCompletionItem(completionItems[completionSelected]);
+                    }
+
+                    if (completionSelected >= 0 && completionSelected < static_cast<int>(completionItems.size())) {
+                        const LSPCompletionItem& selectedItem = completionItems[completionSelected];
+                        const bool localItem = selectedItem.detail == "local";
+
+                        fst::LabelOptions sourceOptions;
+                        sourceOptions.color = localItem ? ctx.theme().colors.textSecondary : ctx.theme().colors.primary;
+                        fst::Label(ctx, localItem ? "Zrodlo: lokalne" : "Zrodlo: LSP", sourceOptions);
+                        if (!selectedItem.detail.empty() && !localItem) {
+                            fst::LabelSecondary(ctx, "Szczegoly: " + selectedItem.detail);
                         }
                     }
 
-                    fst::BeginHorizontal(ctx, 8.0f);
-                    if (fst::Button(ctx, "Wstaw") && completionSelected >= 0 && completionSelected < static_cast<int>(completionItems.size())) {
-                        applyCompletionItem(completionItems[completionSelected]);
-                    }
-                    if (fst::Button(ctx, "Zamknij")) {
-                        completionVisible = false;
-                    }
-                    fst::EndHorizontal(ctx);
+                    fst::LabelSecondary(ctx, "Strzalki = wybor, Enter = wstaw, Esc = zamknij");
                 }
 
                 ctx.layout().endContainer();

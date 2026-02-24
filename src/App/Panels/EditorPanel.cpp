@@ -63,6 +63,7 @@ void RenderEditorPanel(
         fst::TextEditorOptions editorOptions;
         editorOptions.fontSize = 14.0f * textScale;
         editorOptions.showLineNumbers = true;
+        editorOptions.suppressNavigationKeys = completionVisible;
         docs[activeTab]->editor.render(ctx, editorArea, editorOptions);
 
         std::string currentText = docs[activeTab]->editor.getText();

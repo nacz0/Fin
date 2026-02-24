@@ -19,6 +19,7 @@ struct CppSyntaxPalette {
     fst::Color comment;
     fst::Color preprocessor;
     fst::Color function;
+    fst::Color punctuation;
 };
 
 bool isIdentifierStart(char ch) {
@@ -62,7 +63,8 @@ CppSyntaxPalette buildPalette(const fst::Theme& theme) {
             fst::Color::fromHex(0xce9178), // string
             fst::Color::fromHex(0x6a9955), // comment
             fst::Color::fromHex(0xc586c0), // preprocessor
-            fst::Color::fromHex(0xdcdcaa)  // function
+            fst::Color::fromHex(0xdcdcaa), // function
+            fst::Color::fromHex(0xd4d4d4)  // punctuation
         };
     }
 
@@ -73,7 +75,8 @@ CppSyntaxPalette buildPalette(const fst::Theme& theme) {
         fst::Color::fromHex(0xb45309), // string
         fst::Color::fromHex(0x15803d), // comment
         fst::Color::fromHex(0x7e22ce), // preprocessor
-        fst::Color::fromHex(0x92400e)  // function
+        fst::Color::fromHex(0x92400e), // function
+        fst::Color::fromHex(0x4b5563)  // punctuation
     };
 }
 
@@ -99,6 +102,8 @@ std::vector<fst::TextSegment> colorizeCppLine(const std::string& text, const Cpp
 
     static const std::unordered_set<std::string> kControlWords = {
         "if", "for", "while", "switch", "catch", "return", "sizeof", "decltype"};
+    static const std::unordered_set<std::string> kTypeIntroducers = {
+        "class", "struct", "typename", "enum", "union", "using"};
 
     std::vector<fst::TextSegment> segments;
     const int lineLength = static_cast<int>(text.size());
@@ -113,6 +118,7 @@ std::vector<fst::TextSegment> colorizeCppLine(const std::string& text, const Cpp
     }
 
     int i = 0;
+    bool expectTypeName = false;
     while (i < lineLength) {
         const char ch = text[i];
 
@@ -206,18 +212,47 @@ std::vector<fst::TextSegment> colorizeCppLine(const std::string& text, const Cpp
             const std::string word = text.substr(static_cast<size_t>(i), static_cast<size_t>(end - i));
             if (kTypeWords.count(word) > 0) {
                 segments.push_back({i, end, palette.type});
+                expectTypeName = false;
             } else if (kKeywords.count(word) > 0) {
                 segments.push_back({i, end, palette.keyword});
+                expectTypeName = kTypeIntroducers.count(word) > 0;
             } else {
-                int probe = end;
-                while (probe < lineLength && (text[probe] == ' ' || text[probe] == '\t')) {
-                    ++probe;
-                }
-                if (probe < lineLength && text[probe] == '(' && kControlWords.count(word) == 0) {
-                    segments.push_back({i, end, palette.function});
+                if (expectTypeName || std::isupper(static_cast<unsigned char>(word[0])) != 0) {
+                    segments.push_back({i, end, palette.type});
+                    expectTypeName = false;
+                } else {
+                    int probe = end;
+                    while (probe < lineLength && (text[probe] == ' ' || text[probe] == '\t')) {
+                        ++probe;
+                    }
+                    if (probe < lineLength && text[probe] == '(' && kControlWords.count(word) == 0) {
+                        segments.push_back({i, end, palette.function});
+                    } else if (probe < lineLength && text[probe] == '<') {
+                        segments.push_back({i, end, palette.function});
+                    }
                 }
             }
             i = end;
+            continue;
+        }
+
+        if (ch == ':' && i + 1 < lineLength && text[i + 1] == ':') {
+            segments.push_back({i, i + 2, palette.punctuation});
+            i += 2;
+            continue;
+        }
+
+        if (ch == '-' && i + 1 < lineLength && text[i + 1] == '>') {
+            segments.push_back({i, i + 2, palette.punctuation});
+            i += 2;
+            continue;
+        }
+
+        if (ch == '<' || ch == '>' || ch == '(' || ch == ')' ||
+            ch == '[' || ch == ']' || ch == '{' || ch == '}' ||
+            ch == ',' || ch == '*' || ch == '&' || ch == '=') {
+            segments.push_back({i, i + 1, palette.punctuation});
+            ++i;
             continue;
         }
 
@@ -277,6 +312,10 @@ void applyCppSyntaxHighlighting(fst::TextEditor& editor, const std::string& path
     editor.setStyleProvider([palette](int, const std::string& lineText) {
         return colorizeCppLine(lineText, palette);
     });
+}
+
+std::vector<fst::TextSegment> colorizeCppSnippet(const std::string& text, const fst::Theme& theme) {
+    return colorizeCppLine(text, buildPalette(theme));
 }
 
 std::string normalizePath(const std::string& path) {
