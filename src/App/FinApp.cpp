@@ -10,6 +10,7 @@
 #include "App/Panels/ConsolePanel.h"
 #include "App/Panels/EditorPanel.h"
 #include "App/Panels/ExplorerPanel.h"
+#include "App/Panels/LspDiagnosticsPanel.h"
 #include "App/Panels/SettingsPanel.h"
 #include "App/Panels/TerminalPanel.h"
 
@@ -757,6 +758,7 @@ int RunFinApp() {
     viewItems.emplace_back("view_explorer", "Eksplorator", [&]() { pendingDockTabFocusId = "Eksplorator"; });
     viewItems.emplace_back("view_editor", "Edytor", [&]() { pendingDockTabFocusId = "Edytor"; });
     viewItems.emplace_back("view_console", "Konsola", [&]() { pendingDockTabFocusId = "Konsola"; });
+    viewItems.emplace_back("view_lsp_diagnostics", "Diagnostyka LSP", [&]() { pendingDockTabFocusId = "Diagnostyka LSP"; });
     viewItems.emplace_back("view_terminal", "Terminal", [&]() { pendingDockTabFocusId = "Terminal"; });
     viewItems.emplace_back("view_settings", "Ustawienia", [&]() {
         showSettingsWindow = true;
@@ -940,6 +942,7 @@ int RunFinApp() {
             fst::DockBuilder::DockWindow(ctx, "Eksplorator", leftNode);
             fst::DockBuilder::DockWindow(ctx, "Edytor", centerNode);
             fst::DockBuilder::DockWindow(ctx, "Konsola", bottomNode);
+            fst::DockBuilder::DockWindow(ctx, "Diagnostyka LSP", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Terminal", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Ustawienia", centerNode);
 
@@ -1386,6 +1389,7 @@ int RunFinApp() {
             }
         }
         RenderConsolePanel(ctx, docs, activeTab, errorList, compilationOutput, openDocument, clampActiveTab);
+        RenderLspDiagnosticsPanel(ctx, docs, activeTab);
 
         RenderTerminalPanel(ctx, terminal, terminalHistory, terminalInput);
 
@@ -1424,6 +1428,7 @@ int RunFinApp() {
             }
         }
 
+        fst::RenderDockPreview(ctx);
         menuBar.renderPopups(ctx);
         ctx.endFrame();
         window.swapBuffers();

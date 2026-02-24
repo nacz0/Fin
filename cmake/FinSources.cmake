@@ -12,6 +12,7 @@ set(FIN_APP_SOURCES
     src/App/Panels/ConsolePanel.cpp
     src/App/Panels/EditorPanel.cpp
     src/App/Panels/ExplorerPanel.cpp
+    src/App/Panels/LspDiagnosticsPanel.cpp
     src/App/Panels/SettingsPanel.cpp
     src/App/Panels/TerminalPanel.cpp
 )

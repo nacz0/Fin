@@ -5,6 +5,11 @@
 - Uruchom aplikacje: `.\build-fastener\Debug\Fin.exe`
 - Szukanie w kodzie: `rg -n "wzorzec" src`
 
+## Fastener (lokalizacja i dockowanie)
+- Repo Fastenera jest obok Fin: `..\Fastener` (w CMake: `add_subdirectory(../Fastener Fastener-build)`).
+- Podswietlenie targetow dockowania (overlay/strzalki) renderuje Fastener: `..\Fastener\src\widgets\dock_preview.cpp`.
+- W Fin podglad dockowania jest wlaczony przez `fst::RenderDockPreview(ctx);` w `src/App/FinApp.cpp`.
+
 ## Czeste bledy (i jak ich nie powtarzac)
 - **Wyciek inputu do wielu widgetow**  
   `TextEditor` nie moze czytac klawiatury globalnie. Klawiatura ma dzialac **tylko** gdy edytor ma focus (`handleWidgetInteraction` + `getWidgetState(...).focused`).
