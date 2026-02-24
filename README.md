@@ -20,6 +20,26 @@ Fin is a lightweight C++ IDE implemented with the `fastener` UI library.
 - Theme switching (dark/light/retro)
 - Session persistence (open files, active tab, zoom, window size)
 
+## Project Layout
+
+```text
+Fin/
+|- cmake/
+|  `- FinSources.cmake
+|- docs/
+|  `- ARCHITECTURE.md
+|- src/
+|  |- App/
+|  |  |- Panels/
+|  |  |- FinApp.cpp
+|  |  `- FinHelpers.cpp
+|  |- Core/
+|  `- main.cpp
+|- thirdparty/
+|  `- json.hpp
+`- CMakeLists.txt
+```
+
 ## Build
 
 ```bash
@@ -43,6 +63,5 @@ Executable path (Visual Studio generator):
 ## Notes
 
 - Fin is now maintained as a Fastener-only codebase.
-- Legacy ImGui/TextEditor modules were removed from `src/UI` and `src/Editor`.
-- Runtime app code is split into `src/App/FinApp.*`, `src/App/FinHelpers.*`, and `src/App/FinTypes.h`.
-- Dockable panel renderers are split into `src/App/Panels/*` (Explorer, Editor, Console, Terminal, Settings).
+- App runtime code lives in `src/App` and reusable infrastructure in `src/Core`.
+- CMake source lists are centralized in `cmake/FinSources.cmake` for easier maintenance.

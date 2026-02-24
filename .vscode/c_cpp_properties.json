@@ -3,13 +3,9 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/build/_deps/color_text_edit-src",
-                "${workspaceFolder}/build/_deps/imgui-src",
-                "${workspaceFolder}/build/_deps/imgui-src/backends",
-                "${workspaceFolder}/build/_deps/glfw-src/include",
-                "${workspaceFolder}/build/_deps/pfd-src",
-                "${workspaceFolder}/src"
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/thirdparty",
+                "${workspaceFolder}/../Fastener/include"
             ],
             "defines": [
                 "_DEBUG",

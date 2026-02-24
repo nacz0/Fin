@@ -4,6 +4,7 @@
 /cmake-build-*/
 /out/
 /bin/
+/dist/
 
 # IDE files
 .vscode/
@@ -46,5 +47,6 @@ build_output.txt
 # Log files
 *.log
 
-# Workspace specific
+# Workspace specific / local playground
 /testFiles/
+/scratch/
