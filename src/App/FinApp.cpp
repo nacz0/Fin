@@ -5,8 +5,13 @@
 #include "fastener/fastener.h"
 
 #include "App/FinApp.h"
+#include "App/FinCompletionLocal.h"
+#include "App/FinCompletionUi.h"
+#include "App/FinDockingUi.h"
+#include "App/FinEditorAssists.h"
 #include "App/FinHelpers.h"
 #include "App/FinI18n.h"
+#include "App/FinStatusBar.h"
 #include "App/FinTypes.h"
 #include "App/Panels/ConsolePanel.h"
 #include "App/Panels/EditorPanel.h"
@@ -24,11 +29,11 @@
 #include "Core/Terminal.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
@@ -107,17 +112,12 @@ int RunFinApp() {
     std::future<std::string> compilationTask;
     bool isCompiling = false;
 
-    bool completionVisible = false;
-    bool completionLoading = false;
-    int completionSelected = 0;
-    float completionScrollOffset = 0.0f;
-    bool completionScrollbarDragging = false;
-    float completionScrollbarDragOffset = 0.0f;
-    fst::Key completionRepeatKey = fst::Key::Unknown;
-    float completionRepeatTimer = 0.0f;
-    std::vector<LSPCompletionItem> completionItems;
-    int completionOwnerTab = -1;
-    std::string completionOwnerDocumentPath;
+    CompletionUiState completionState;
+    bool& completionVisible = completionState.visible;
+    bool& completionLoading = completionState.loading;
+    std::vector<LSPCompletionItem>& completionItems = completionState.items;
+    int& completionOwnerTab = completionState.ownerTab;
+    std::string& completionOwnerDocumentPath = completionState.ownerDocumentPath;
 
     fs::path currentPath = fs::exists(config.lastDirectory) ? fs::path(config.lastDirectory) : fs::current_path();
 
@@ -199,12 +199,7 @@ int RunFinApp() {
         completionVisible = false;
         completionLoading = false;
         completionItems.clear();
-        completionSelected = 0;
-        completionScrollOffset = 0.0f;
-        completionScrollbarDragging = false;
-        completionScrollbarDragOffset = 0.0f;
-        completionRepeatKey = fst::Key::Unknown;
-        completionRepeatTimer = 0.0f;
+        ResetCompletionInteractionState(completionState);
         completionOwnerTab = -1;
         completionOwnerDocumentPath.clear();
         std::lock_guard<std::mutex> lock(lspMutex);
@@ -475,142 +470,6 @@ int RunFinApp() {
         });
     };
 
-    auto collectLocalCompletions = [&](DocumentTab& tab, const fst::TextPosition& cursor) {
-        std::vector<LSPCompletionItem> out;
-
-        const std::string fullText = tab.editor.getText();
-        size_t offset = offsetFromPosition(fullText, cursor);
-        if (offset > fullText.size()) {
-            offset = fullText.size();
-        }
-
-        size_t lineStart = offset;
-        while (lineStart > 0 && fullText[lineStart - 1] != '\n') {
-            --lineStart;
-        }
-        const std::string beforeCursor = fullText.substr(lineStart, offset - lineStart);
-
-        bool inStdScope = false;
-        std::string typedPrefix;
-
-        const size_t scopePos = beforeCursor.rfind("::");
-        if (scopePos != std::string::npos) {
-            size_t idEnd = scopePos;
-            size_t idStart = idEnd;
-            while (idStart > 0) {
-                const char ch = beforeCursor[idStart - 1];
-                const unsigned char uch = static_cast<unsigned char>(ch);
-                if (std::isalnum(uch) || ch == '_') {
-                    --idStart;
-                    continue;
-                }
-                break;
-            }
-
-            const std::string qualifier = beforeCursor.substr(idStart, idEnd - idStart);
-            if (qualifier == "std") {
-                inStdScope = true;
-                typedPrefix = beforeCursor.substr(scopePos + 2);
-            }
-        }
-
-        if (!inStdScope) {
-            size_t idStart = beforeCursor.size();
-            while (idStart > 0) {
-                const char ch = beforeCursor[idStart - 1];
-                const unsigned char uch = static_cast<unsigned char>(ch);
-                if (std::isalnum(uch) || ch == '_') {
-                    --idStart;
-                    continue;
-                }
-                break;
-            }
-            typedPrefix = beforeCursor.substr(idStart);
-        }
-
-        if (!inStdScope && typedPrefix.size() < 1) {
-            return out;
-        }
-
-        static const std::vector<std::string> kCppKeywords = {
-            "alignas", "alignof", "auto", "bool", "break", "case", "catch", "char", "class", "const",
-            "constexpr", "continue", "default", "delete", "do", "double", "else", "enum", "explicit",
-            "extern", "false", "float", "for", "friend", "if", "inline", "int", "long", "namespace",
-            "new", "noexcept", "nullptr", "operator", "private", "protected", "public", "return",
-            "short", "signed", "sizeof", "static", "struct", "switch", "template", "this", "throw",
-            "true", "try", "typedef", "typename", "union", "unsigned", "using", "virtual", "void",
-            "volatile", "while"};
-
-        static const std::vector<std::string> kStdSymbols = {
-            "array", "begin", "cout", "cerr", "cin", "clog", "deque", "endl", "end", "getline", "list",
-            "make_pair", "make_shared", "make_unique", "map", "max", "min", "move", "optional", "pair",
-            "set", "shared_ptr", "sort", "span", "stack", "string", "string_view", "swap", "tuple",
-            "unordered_map", "unordered_set", "unique_ptr", "vector"};
-
-        std::unordered_set<std::string> seen;
-        std::vector<std::string> candidates;
-        candidates.reserve(256);
-
-        auto pushCandidate = [&](const std::string& value) {
-            if (value.empty() || seen.count(value) > 0) {
-                return;
-            }
-            seen.insert(value);
-            candidates.push_back(value);
-        };
-
-        if (inStdScope) {
-            for (const auto& s : kStdSymbols) {
-                pushCandidate(s);
-            }
-        } else {
-            for (const auto& s : kCppKeywords) {
-                pushCandidate(s);
-            }
-        }
-
-        std::string token;
-        token.reserve(32);
-        for (char ch : fullText) {
-            const unsigned char uch = static_cast<unsigned char>(ch);
-            if (std::isalnum(uch) || ch == '_') {
-                token.push_back(ch);
-            } else {
-                if (token.size() >= 3) {
-                    pushCandidate(token);
-                }
-                token.clear();
-            }
-        }
-        if (token.size() >= 3) {
-            pushCandidate(token);
-        }
-
-        for (const std::string& candidate : candidates) {
-            if (!typedPrefix.empty() && candidate.rfind(typedPrefix, 0) != 0) {
-                continue;
-            }
-            if (!typedPrefix.empty() && candidate == typedPrefix) {
-                continue;
-            }
-
-            LSPCompletionItem item;
-            item.label = candidate;
-            item.detail = "local";
-            item.insertText = typedPrefix.empty() ? candidate : candidate.substr(typedPrefix.size());
-            if (item.insertText.empty()) {
-                item.insertText = candidate;
-            }
-
-            out.push_back(item);
-            if (out.size() >= 40) {
-                break;
-            }
-        }
-
-        return out;
-    };
-
     auto requestCompletionForActive = [&](bool manualRequest) {
         if (!config.autocompleteEnabled && !manualRequest) {
             return;
@@ -626,8 +485,9 @@ int RunFinApp() {
 
         DocumentTab& tab = *docs[activeTab];
         const std::string& lspDocumentPath = ensureLspDocumentPath(tab);
+        const std::string ownerPath = lspDocumentPath.empty() ? tab.id : lspDocumentPath;
         fst::TextPosition cursor = tab.editor.cursor();
-        std::vector<LSPCompletionItem> localFallback = collectLocalCompletions(tab, cursor);
+        std::vector<LSPCompletionItem> localFallback = CollectLocalCompletions(tab, cursor);
 
         bool canUseLsp = false;
         if (config.autocompleteEnabled && !lspDocumentPath.empty()) {
@@ -645,36 +505,10 @@ int RunFinApp() {
                 }
                 return;
             }
-
-            completionVisible = true;
-            completionLoading = false;
-            completionItems = localFallback;
-            completionSelected = 0;
-            completionScrollOffset = 0.0f;
-            completionScrollbarDragging = false;
-            completionRepeatKey = fst::Key::Unknown;
-            completionRepeatTimer = 0.0f;
-            completionOwnerTab = activeTab;
-            completionOwnerDocumentPath = lspDocumentPath;
-            if (completionOwnerDocumentPath.empty()) {
-                completionOwnerDocumentPath = tab.id;
-            }
+            ShowCompletionPopup(completionState, activeTab, std::move(localFallback), false, ownerPath);
             return;
         }
-
-        completionVisible = true;
-        completionLoading = localFallback.empty();
-        completionItems = localFallback;
-        completionSelected = 0;
-        completionScrollOffset = 0.0f;
-        completionScrollbarDragging = false;
-        completionRepeatKey = fst::Key::Unknown;
-        completionRepeatTimer = 0.0f;
-        completionOwnerTab = activeTab;
-        completionOwnerDocumentPath = lspDocumentPath;
-        if (completionOwnerDocumentPath.empty()) {
-            completionOwnerDocumentPath = tab.id;
-        }
+        ShowCompletionPopup(completionState, activeTab, localFallback, localFallback.empty(), ownerPath);
 
         const int requestToken = ++completionRequestToken;
         lsp.RequestCompletion(
@@ -747,6 +581,10 @@ int RunFinApp() {
         closeCompletionPopup();
     };
 
+    const std::function<void(const LSPCompletionItem&)> applyCompletionFromUi = [&](const LSPCompletionItem& item) {
+        applyCompletionItem(item);
+    };
+
     const auto refreshEditorsAfterThemeChange = [&]() {
         for (auto& tab : docs) {
             applyCppSyntaxHighlighting(tab->editor, tab->path.empty() ? tab->name : tab->path, ctx.theme());
@@ -775,66 +613,15 @@ int RunFinApp() {
     bool pendingMenuAutocomplete = false;
     bool pendingThemeChange = false;
     int pendingDockTabFocus = -1;
-
-    enum class DockWindowId {
-        Explorer = 0,
-        Editor = 1,
-        Console = 2,
-        LspDiagnostics = 3,
-        Terminal = 4,
-        Settings = 5,
-        Personalization = 6,
-    };
-
-    struct ManagedDockWindow {
-        DockWindowId id;
-        bool* visible;
-        DockWindowId fallbackAnchorId;
-        fst::DockDirection fallbackDirection;
-    };
-
-    const auto dockWindowTitle = [&](DockWindowId id) -> std::string {
-        switch (id) {
-            case DockWindowId::Explorer:
-                return fst::i18n("window.explorer");
-            case DockWindowId::Editor:
-                return fst::i18n("window.editor");
-            case DockWindowId::Console:
-                return fst::i18n("window.console");
-            case DockWindowId::LspDiagnostics:
-                return fst::i18n("window.lsp_diagnostics");
-            case DockWindowId::Terminal:
-                return fst::i18n("window.terminal");
-            case DockWindowId::Settings:
-                return fst::i18n("window.settings");
-            case DockWindowId::Personalization:
-                return fst::i18n("window.personalization");
-        }
-        return std::string();
-    };
-
-    const std::array<ManagedDockWindow, 7> managedDockWindows = {{
-        {DockWindowId::Explorer, &showExplorerTab, DockWindowId::Editor, fst::DockDirection::Left},
-        {DockWindowId::Editor, &showEditorTab, DockWindowId::Explorer, fst::DockDirection::Right},
-        {DockWindowId::Console, &showConsoleTab, DockWindowId::Editor, fst::DockDirection::Bottom},
-        {DockWindowId::LspDiagnostics, &showLspDiagnosticsTab, DockWindowId::Editor, fst::DockDirection::Bottom},
-        {DockWindowId::Terminal, &showTerminalTab, DockWindowId::Editor, fst::DockDirection::Bottom},
-        {DockWindowId::Settings, &showSettingsWindow, DockWindowId::Editor, fst::DockDirection::Center},
-        {DockWindowId::Personalization, &showPersonalizationTab, DockWindowId::Settings, fst::DockDirection::Center},
-    }};
-
+    ManagedDockWindows managedDockWindows = CreateManagedDockWindows(
+        showExplorerTab,
+        showEditorTab,
+        showConsoleTab,
+        showLspDiagnosticsTab,
+        showTerminalTab,
+        showSettingsWindow,
+        showPersonalizationTab);
     std::unordered_map<int, fst::DockNode::Id> lastDockNodeByWindow;
-
-    const auto dockWindowKey = [](DockWindowId id) {
-        return static_cast<int>(id);
-    };
-
-    auto requestDockTab = [&](DockWindowId windowId, bool* visibilityFlag = nullptr) {
-        if (visibilityFlag) {
-            *visibilityFlag = true;
-        }
-        pendingDockTabFocus = dockWindowKey(windowId);
-    };
 
     const auto buildMenuBar = [&]() {
         menuBar.clear();
@@ -857,13 +644,13 @@ int RunFinApp() {
         menuBar.addMenu(fst::i18n("menu.build"), buildItems);
 
         std::vector<fst::MenuItem> viewItems;
-        viewItems.emplace_back("view_explorer", fst::i18n("menu.view.explorer"), [&]() { requestDockTab(DockWindowId::Explorer, &showExplorerTab); });
-        viewItems.emplace_back("view_editor", fst::i18n("menu.view.editor"), [&]() { requestDockTab(DockWindowId::Editor, &showEditorTab); });
-        viewItems.emplace_back("view_console", fst::i18n("menu.view.console"), [&]() { requestDockTab(DockWindowId::Console, &showConsoleTab); });
-        viewItems.emplace_back("view_lsp_diagnostics", fst::i18n("menu.view.lsp_diagnostics"), [&]() { requestDockTab(DockWindowId::LspDiagnostics, &showLspDiagnosticsTab); });
-        viewItems.emplace_back("view_terminal", fst::i18n("menu.view.terminal"), [&]() { requestDockTab(DockWindowId::Terminal, &showTerminalTab); });
-        viewItems.emplace_back("view_settings", fst::i18n("menu.view.settings"), [&]() { requestDockTab(DockWindowId::Settings, &showSettingsWindow); });
-        viewItems.emplace_back("view_personalization", fst::i18n("menu.view.personalization"), [&]() { requestDockTab(DockWindowId::Personalization, &showPersonalizationTab); });
+        viewItems.emplace_back("view_explorer", fst::i18n("menu.view.explorer"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Explorer, &showExplorerTab); });
+        viewItems.emplace_back("view_editor", fst::i18n("menu.view.editor"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Editor, &showEditorTab); });
+        viewItems.emplace_back("view_console", fst::i18n("menu.view.console"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Console, &showConsoleTab); });
+        viewItems.emplace_back("view_lsp_diagnostics", fst::i18n("menu.view.lsp_diagnostics"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::LspDiagnostics, &showLspDiagnosticsTab); });
+        viewItems.emplace_back("view_terminal", fst::i18n("menu.view.terminal"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Terminal, &showTerminalTab); });
+        viewItems.emplace_back("view_settings", fst::i18n("menu.view.settings"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Settings, &showSettingsWindow); });
+        viewItems.emplace_back("view_personalization", fst::i18n("menu.view.personalization"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Personalization, &showPersonalizationTab); });
         viewItems.push_back(fst::MenuItem::separator());
         viewItems.emplace_back("theme_dark", fst::i18n("menu.view.theme_dark"), [&]() { config.theme = 0; pendingThemeChange = true; });
         viewItems.emplace_back("theme_light", fst::i18n("menu.view.theme_light"), [&]() { config.theme = 1; pendingThemeChange = true; });
@@ -873,132 +660,6 @@ int RunFinApp() {
 
     bool menuNeedsRebuild = false;
     buildMenuBar();
-
-    const auto focusDockTab = [&](DockWindowId dockWindowId) {
-        const std::string windowTitle = dockWindowTitle(dockWindowId);
-        if (windowTitle.empty()) {
-            return;
-        }
-
-        const fst::WidgetId widgetId = ctx.makeId(windowTitle);
-        fst::DockNode* node = ctx.docking().getWindowDockNode(widgetId);
-        if (!node) {
-            return;
-        }
-
-        const auto it = std::find(node->dockedWindows.begin(), node->dockedWindows.end(), widgetId);
-        if (it == node->dockedWindows.end()) {
-            return;
-        }
-
-        node->selectedTabIndex = static_cast<int>(std::distance(node->dockedWindows.begin(), it));
-    };
-
-    const auto findManagedDockWindow = [&](DockWindowId id) -> const ManagedDockWindow* {
-        const auto it = std::find_if(
-            managedDockWindows.begin(),
-            managedDockWindows.end(),
-            [&](const ManagedDockWindow& windowInfo) {
-                return id == windowInfo.id;
-            });
-        if (it == managedDockWindows.end()) {
-            return nullptr;
-        }
-        return &(*it);
-    };
-
-    const auto rememberCurrentDockNodes = [&]() {
-        for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-            const std::string windowTitle = dockWindowTitle(windowInfo.id);
-            const fst::WidgetId windowId = ctx.makeId(windowTitle);
-            fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
-            if (node && node->hasWindow(windowId)) {
-                lastDockNodeByWindow[dockWindowKey(windowInfo.id)] = node->id;
-            }
-        }
-    };
-
-    const auto setDockWindowVisibility = [&](DockWindowId windowKind, bool visible) {
-        const ManagedDockWindow* windowInfo = findManagedDockWindow(windowKind);
-        if (!windowInfo) {
-            return;
-        }
-
-        if (visible == *windowInfo->visible) {
-            if (visible) {
-                pendingDockTabFocus = dockWindowKey(windowKind);
-            }
-            return;
-        }
-
-        const std::string windowTitle = dockWindowTitle(windowInfo->id);
-        const fst::WidgetId windowId = ctx.makeId(windowTitle);
-        fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
-        if (!visible && node && node->hasWindow(windowId) && node->dockedWindows.size() <= 1) {
-            return;
-        }
-
-        *windowInfo->visible = visible;
-        if (visible) {
-            pendingDockTabFocus = dockWindowKey(windowKind);
-        }
-    };
-
-    const auto syncDockWindowVisibility = [&]() {
-        rememberCurrentDockNodes();
-
-        for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-            if (*windowInfo.visible) {
-                continue;
-            }
-
-            const std::string windowTitle = dockWindowTitle(windowInfo.id);
-            const fst::WidgetId windowId = ctx.makeId(windowTitle);
-            fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
-            if (node && node->hasWindow(windowId)) {
-                if (node->dockedWindows.size() <= 1) {
-                    *windowInfo.visible = true;
-                    continue;
-                }
-                node->removeWindow(windowId);
-            }
-        }
-
-        for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-            if (!*windowInfo.visible) {
-                continue;
-            }
-
-            const std::string windowTitle = dockWindowTitle(windowInfo.id);
-            const fst::WidgetId windowId = ctx.makeId(windowTitle);
-            fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
-            if (node && node->hasWindow(windowId)) {
-                continue;
-            }
-
-            fst::DockNode* targetNode = nullptr;
-            const auto remembered = lastDockNodeByWindow.find(dockWindowKey(windowInfo.id));
-            if (remembered != lastDockNodeByWindow.end()) {
-                targetNode = ctx.docking().getDockNode(remembered->second);
-            }
-
-            if (targetNode) {
-                ctx.docking().dockWindow(windowId, targetNode->id, fst::DockDirection::Center);
-                continue;
-            }
-
-            const std::string anchorTitle = dockWindowTitle(windowInfo.fallbackAnchorId);
-            const fst::WidgetId anchorId = ctx.makeId(anchorTitle);
-            if (fst::DockNode* anchorNode = ctx.docking().getWindowDockNode(anchorId)) {
-                ctx.docking().dockWindow(windowId, anchorNode->id, windowInfo.fallbackDirection);
-                continue;
-            }
-
-            if (fst::DockNode* rootNode = ctx.docking().getDockSpace("##MainDockSpace")) {
-                ctx.docking().dockWindow(windowId, rootNode->id, fst::DockDirection::Center);
-            }
-        }
-    };
 
     for (const std::string& filePath : config.openFiles) {
         openDocument(filePath);
@@ -1061,11 +722,11 @@ int RunFinApp() {
             if (pendingCompletionReady) {
                 completionItems = pendingCompletions;
                 completionLoading = false;
-                completionSelected = completionItems.empty() ? 0 : std::min(completionSelected, static_cast<int>(completionItems.size()) - 1);
-                completionScrollOffset = 0.0f;
-                completionScrollbarDragging = false;
-                completionRepeatKey = fst::Key::Unknown;
-                completionRepeatTimer = 0.0f;
+                completionState.selected =
+                    completionItems.empty()
+                        ? 0
+                        : std::min(completionState.selected, static_cast<int>(completionItems.size()) - 1);
+                ResetCompletionNavigationState(completionState);
                 pendingCompletionReady = false;
             }
         }
@@ -1158,13 +819,13 @@ int RunFinApp() {
             fst::DockNode::Id bottomNode = fst::DockBuilder::SplitNode(ctx, rightNode, fst::DockDirection::Bottom, 0.28f);
             fst::DockNode::Id centerNode = fst::DockBuilder::GetNode(ctx, rightNode, fst::DockDirection::Top);
 
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Explorer), leftNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Editor), centerNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Console), bottomNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::LspDiagnostics), bottomNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Terminal), bottomNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Settings), centerNode);
-            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Personalization), centerNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Explorer), leftNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Editor), centerNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Console), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::LspDiagnostics), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Terminal), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Settings), centerNode);
+            fst::DockBuilder::DockWindow(ctx, DockWindowTitle(DockWindowId::Personalization), centerNode);
 
             fst::DockBuilder::Finish();
             layoutInitialized = true;
@@ -1172,7 +833,7 @@ int RunFinApp() {
 
         fst::Rect dockArea(0.0f, menuBarHeight, windowW, windowH - menuBarHeight - statusBarHeight);
         fst::DockSpace(ctx, "##MainDockSpace", dockArea);
-        syncDockWindowVisibility();
+        SyncDockWindowVisibility(ctx, managedDockWindows, lastDockNodeByWindow);
 
         if (input.isMousePressed(fst::MouseButton::Right) &&
             !ctx.isOccluded(input.mousePos()) &&
@@ -1180,7 +841,7 @@ int RunFinApp() {
             !fst::IsMouseOverAnyMenu(ctx)) {
             std::vector<fst::DockNode*> candidateNodes;
             for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-                const std::string windowTitle = dockWindowTitle(windowInfo.id);
+                const std::string windowTitle = DockWindowTitle(windowInfo.id);
                 const fst::WidgetId windowId = ctx.makeId(windowTitle);
                 fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
                 if (!node || !node->hasWindow(windowId)) {
@@ -1219,10 +880,10 @@ int RunFinApp() {
                 std::vector<fst::MenuItem> tabMenuItems;
                 for (size_t i = 0; i < managedDockWindows.size(); ++i) {
                     const ManagedDockWindow& windowInfo = managedDockWindows[i];
-                    const std::string windowTitle = dockWindowTitle(windowInfo.id);
+                    const std::string windowTitle = DockWindowTitle(windowInfo.id);
                     const fst::WidgetId windowId = ctx.makeId(windowTitle);
                     const bool belongsToNode = clickedNode->hasWindow(windowId);
-                    const auto remembered = lastDockNodeByWindow.find(dockWindowKey(windowInfo.id));
+                    const auto remembered = lastDockNodeByWindow.find(DockWindowKey(windowInfo.id));
                     const bool rememberedInNode = remembered != lastDockNodeByWindow.end() && remembered->second == clickedNode->id;
                     if (!belongsToNode && !rememberedInNode) {
                         continue;
@@ -1233,7 +894,13 @@ int RunFinApp() {
                         windowTitle,
                         *windowInfo.visible,
                         [&, id = windowInfo.id, visibleFlag = windowInfo.visible]() {
-                            setDockWindowVisibility(id, !*visibleFlag);
+                            SetDockWindowVisibility(
+                                ctx,
+                                managedDockWindows,
+                                lastDockNodeByWindow,
+                                pendingDockTabFocus,
+                                id,
+                                !*visibleFlag);
                         });
 
                     if (*windowInfo.visible && belongsToNode && clickedNode->dockedWindows.size() <= 1) {
@@ -1250,7 +917,7 @@ int RunFinApp() {
         }
 
         if (pendingDockTabFocus >= 0) {
-            focusDockTab(static_cast<DockWindowId>(pendingDockTabFocus));
+            FocusDockTab(ctx, static_cast<DockWindowId>(pendingDockTabFocus));
             pendingDockTabFocus = -1;
         }
 
@@ -1287,410 +954,23 @@ int RunFinApp() {
                 closeCompletionPopup);
         }
 
-        auto applyEditorAssists = [&]() {
-            clampActiveTab();
-            if (activeTab < 0 || activeTab >= static_cast<int>(docs.size())) {
-                return;
-            }
-            if (input.modifiers().ctrl || input.modifiers().alt || input.modifiers().super) {
-                return;
-            }
-            if (!config.autoClosingBrackets && !config.smartIndentEnabled) {
-                return;
-            }
-
-            DocumentTab& tab = *docs[activeTab];
-            std::string text = tab.editor.getText();
-            size_t cursorOffset = offsetFromPosition(text, tab.editor.cursor());
-            if (cursorOffset > text.size()) {
-                cursorOffset = text.size();
-            }
-
-            bool changed = false;
-            const std::string& typed = input.textInput();
-
-            auto matchingClosing = [](char ch) -> char {
-                switch (ch) {
-                    case '(': return ')';
-                    case '[': return ']';
-                    case '{': return '}';
-                    case '"': return '"';
-                    case '\'': return '\'';
-                    default: return '\0';
-                }
-            };
-
-            auto isClosingChar = [](char ch) {
-                return ch == ')' || ch == ']' || ch == '}' || ch == '"' || ch == '\'';
-            };
-
-            if (config.autoClosingBrackets &&
-                input.isKeyPressed(fst::Key::Backspace) &&
-                assistHasPreState &&
-                assistPreTab == activeTab) {
-                size_t oldCursorOffset = offsetFromPosition(assistPreText, assistPreCursor);
-                if (oldCursorOffset > assistPreText.size()) {
-                    oldCursorOffset = assistPreText.size();
-                }
-
-                if (oldCursorOffset > 0 &&
-                    oldCursorOffset < assistPreText.size() &&
-                    text.size() + 1 == assistPreText.size() &&
-                    cursorOffset + 1 == oldCursorOffset) {
-                    const char oldLeft = assistPreText[oldCursorOffset - 1];
-                    const char oldRight = assistPreText[oldCursorOffset];
-                    const char expectedRight = matchingClosing(oldLeft);
-                    if (expectedRight != '\0' && expectedRight == oldRight) {
-                        std::string expectedText = assistPreText;
-                        expectedText.erase(oldCursorOffset - 1, 1);
-                        if (expectedText == text &&
-                            cursorOffset < text.size() &&
-                            text[cursorOffset] == oldRight) {
-                            text.erase(cursorOffset, 1);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            if (config.autoClosingBrackets && typed.size() == 1 && cursorOffset > 0) {
-                const char typedChar = typed[0];
-
-                if (isClosingChar(typedChar) &&
-                    cursorOffset < text.size() &&
-                    text[cursorOffset - 1] == typedChar &&
-                    text[cursorOffset] == typedChar) {
-                    text.erase(cursorOffset - 1, 1);
-                    changed = true;
-                } else {
-                    const char closing = matchingClosing(typedChar);
-                    if (closing != '\0' && text[cursorOffset - 1] == typedChar) {
-                        const char next = (cursorOffset < text.size()) ? text[cursorOffset] : '\0';
-                        bool shouldInsertClosing = true;
-
-                        if (typedChar == '"' || typedChar == '\'') {
-                            const char prev = (cursorOffset >= 2) ? text[cursorOffset - 2] : '\0';
-                            const unsigned char nextUch = static_cast<unsigned char>(next);
-                            if (prev == '\\' || next == typedChar || std::isalnum(nextUch) || next == '_') {
-                                shouldInsertClosing = false;
-                            }
-                        } else if (next != '\0') {
-                            static const std::string kStopChars = " \t\r\n)]},;:";
-                            if (kStopChars.find(next) == std::string::npos) {
-                                shouldInsertClosing = false;
-                            }
-                        }
-
-                        if (shouldInsertClosing) {
-                            text.insert(cursorOffset, 1, closing);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            if (config.smartIndentEnabled && input.isKeyPressed(fst::Key::Enter)) {
-                if (cursorOffset >= 2 && cursorOffset <= text.size() &&
-                    text[cursorOffset - 1] == '\n' &&
-                    text[cursorOffset - 2] == '{' &&
-                    cursorOffset < text.size() &&
-                    text[cursorOffset] == '}') {
-                    size_t lineStart = cursorOffset;
-                    while (lineStart > 0 && text[lineStart - 1] != '\n') {
-                        --lineStart;
-                    }
-
-                    size_t indentEnd = lineStart;
-                    while (indentEnd < text.size() && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) {
-                        ++indentEnd;
-                    }
-
-                    const std::string baseIndent = text.substr(lineStart, indentEnd - lineStart);
-                    const std::string indentUnit = (baseIndent.find('\t') != std::string::npos) ? "\t" : "    ";
-                    const std::string insertion = baseIndent + indentUnit + "\n";
-
-                    text.insert(cursorOffset, insertion);
-                    cursorOffset += baseIndent.size() + indentUnit.size();
-                    changed = true;
-                }
-            }
-
-            if (!changed) {
-                return;
-            }
-
-            tab.editor.setText(text);
-            tab.editor.setCursor(positionFromOffset(text, cursorOffset));
-            tab.dirty = (text != tab.savedText);
-            if (completionVisible) {
-                closeCompletionPopup();
-            }
-        };
-
         if (showEditorTab) {
-            applyEditorAssists();
+            ApplyEditorAssists(
+                config,
+                input,
+                docs,
+                activeTab,
+                assistHasPreState,
+                assistPreTab,
+                assistPreText,
+                assistPreCursor,
+                completionVisible,
+                clampActiveTab,
+                closeCompletionPopup);
         }
-
-        constexpr float completionListHeight = 260.0f;
-        const auto completionItemHeight = [&]() -> float {
-            if (ctx.font()) {
-                return ctx.font()->lineHeight() + ctx.theme().metrics.paddingSmall * 2.0f;
-            }
-            return 24.0f;
-        };
-        const auto keepCompletionSelectionVisible = [&](float itemHeight, float viewHeight) {
-            if (completionItems.empty()) {
-                completionScrollOffset = 0.0f;
-                return;
-            }
-
-            const float totalHeight = itemHeight * static_cast<float>(completionItems.size());
-            const float maxScroll = std::max(0.0f, totalHeight - viewHeight);
-            completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
-
-            const float selectedTop = completionSelected * itemHeight;
-            const float selectedBottom = selectedTop + itemHeight;
-            if (selectedTop < completionScrollOffset) {
-                completionScrollOffset = selectedTop;
-            } else if (selectedBottom > completionScrollOffset + viewHeight) {
-                completionScrollOffset = selectedBottom - viewHeight;
-            }
-
-            completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
-        };
-
-        const auto shouldRepeatCompletionNav = [&](fst::Key key) -> bool {
-            if (input.isKeyPressed(key)) {
-                completionRepeatKey = key;
-                completionRepeatTimer = 0.35f;
-                return true;
-            }
-
-            if (completionRepeatKey == key && input.isKeyDown(key)) {
-                completionRepeatTimer -= ctx.deltaTime();
-                if (completionRepeatTimer <= 0.0f) {
-                    completionRepeatTimer = 0.05f;
-                    return true;
-                }
-            }
-
-            if (completionRepeatKey == key && !input.isKeyDown(key)) {
-                completionRepeatKey = fst::Key::Unknown;
-                completionRepeatTimer = 0.0f;
-            }
-            return false;
-        };
-
-        if (completionVisible && !completionLoading && !completionItems.empty()) {
-            completionSelected = std::clamp(completionSelected, 0, static_cast<int>(completionItems.size()) - 1);
-            const float itemHeight = completionItemHeight();
-            bool selectionMovedByKeyboard = false;
-
-            if (shouldRepeatCompletionNav(fst::Key::Down)) {
-                completionSelected = std::min(completionSelected + 1, static_cast<int>(completionItems.size()) - 1);
-                selectionMovedByKeyboard = true;
-            }
-            if (shouldRepeatCompletionNav(fst::Key::Up)) {
-                completionSelected = std::max(completionSelected - 1, 0);
-                selectionMovedByKeyboard = true;
-            }
-            if (selectionMovedByKeyboard) {
-                keepCompletionSelectionVisible(itemHeight, completionListHeight);
-            }
-            if (input.isKeyPressed(fst::Key::Enter) || input.isKeyPressed(fst::Key::KPEnter)) {
-                applyCompletionItem(completionItems[completionSelected]);
-            }
-        } else if (!completionVisible) {
-            completionRepeatKey = fst::Key::Unknown;
-            completionRepeatTimer = 0.0f;
-        }
-
-        bool completionWindowDrawn = false;
-        fst::Rect completionWindowBounds;
-        if (completionVisible) {
-            fst::DockableWindowOptions completionOptions;
-            completionOptions.open = &completionVisible;
-            completionOptions.allowDocking = false;
-            completionOptions.allowFloating = true;
-            completionOptions.draggable = false;
-            completionOptions.showTitleBar = false;
-            if (fst::BeginDockableWindow(ctx, fst::i18n("window.completion"), completionOptions)) {
-                const fst::Rect bounds = ctx.layout().currentBounds();
-                completionWindowBounds = bounds;
-                completionWindowDrawn = true;
-                ctx.layout().beginContainer(bounds);
-
-                if (completionLoading) {
-                    fst::Label(ctx, fst::i18n("completion.fetching"));
-                } else if (completionItems.empty()) {
-                    fst::Label(ctx, fst::i18n("completion.none"));
-                } else {
-                    completionSelected = std::clamp(completionSelected, 0, static_cast<int>(completionItems.size()) - 1);
-                    const fst::Theme& theme = ctx.theme();
-                    fst::Font* font = ctx.font();
-                    fst::DrawList& dl = ctx.drawList();
-                    const float itemHeight = completionItemHeight();
-
-                    const float listWidth = std::max(260.0f, bounds.width() - 20.0f);
-                    const fst::Rect listRect = fst::Allocate(ctx, listWidth, completionListHeight);
-
-                    const float totalHeight = itemHeight * static_cast<float>(completionItems.size());
-                    const bool needsScrollbar = totalHeight > listRect.height();
-                    const float scrollbarWidth = needsScrollbar ? std::max(10.0f, theme.metrics.scrollbarWidth) : 0.0f;
-                    fst::Rect contentRect(listRect.x(), listRect.y(), listRect.width() - scrollbarWidth, listRect.height());
-
-                    const bool listHovered = listRect.contains(input.mousePos()) && !ctx.isOccluded(input.mousePos());
-                    if (listHovered) {
-                        completionScrollOffset -= input.scrollDelta().y * itemHeight;
-                    }
-                    const float maxScroll = std::max(0.0f, totalHeight - listRect.height());
-                    completionScrollOffset = std::clamp(completionScrollOffset, 0.0f, maxScroll);
-
-                    const float listRadius = std::max(2.0f, theme.metrics.borderRadiusSmall - 2.0f);
-                    const fst::Color listFillColor = theme.colors.inputBackground.darker(0.06f);
-                    dl.addRectFilled(listRect, listFillColor, listRadius);
-
-                    int hoveredIndex = -1;
-                    dl.pushClipRect(contentRect);
-                    for (int i = 0; i < static_cast<int>(completionItems.size()); ++i) {
-                        const float rowY = contentRect.y() + i * itemHeight - completionScrollOffset;
-                        if (rowY + itemHeight < contentRect.y() || rowY > contentRect.bottom()) {
-                            continue;
-                        }
-
-                        const fst::Rect rowRect(contentRect.x(), rowY, contentRect.width(), itemHeight);
-                        const bool selected = (i == completionSelected);
-                        const bool hovered = rowRect.contains(input.mousePos()) && contentRect.contains(input.mousePos()) && !ctx.isOccluded(input.mousePos());
-                        if (hovered) {
-                            hoveredIndex = i;
-                        }
-
-                        if (selected) {
-                            dl.addRectFilled(rowRect, theme.colors.selection);
-                        } else if (hovered) {
-                            dl.addRectFilled(rowRect, theme.colors.selection.withAlpha(static_cast<uint8_t>(90)));
-                        }
-
-                        if (font) {
-                            const LSPCompletionItem& item = completionItems[i];
-                            const float textY = rowRect.y() + (itemHeight - font->lineHeight()) * 0.5f;
-                            float textX = rowRect.x() + theme.metrics.paddingSmall;
-                            const std::string rowText = item.detail.empty() ? item.label : (item.label + " :: " + item.detail);
-                            const std::vector<fst::TextSegment> syntax = colorizeCppSnippet(rowText, theme);
-
-                            auto toRowColor = [&](const fst::Color& base) -> fst::Color {
-                                if (selected) {
-                                    return fst::Color::lerp(base, theme.colors.selectionText, 0.55f);
-                                }
-                                return base;
-                            };
-
-                            int cursor = 0;
-                            const int rowTextLen = static_cast<int>(rowText.size());
-                            for (const auto& seg : syntax) {
-                                const int start = std::clamp(seg.startColumn, 0, rowTextLen);
-                                const int end = std::clamp(seg.endColumn, start, rowTextLen);
-                                if (start > cursor) {
-                                    const std::string plain = rowText.substr(static_cast<size_t>(cursor), static_cast<size_t>(start - cursor));
-                                    dl.addText(font, fst::Vec2(textX, textY), plain, toRowColor(theme.colors.text));
-                                    textX += font->measureText(plain).x;
-                                }
-                                if (end > start) {
-                                    const std::string token = rowText.substr(static_cast<size_t>(start), static_cast<size_t>(end - start));
-                                    dl.addText(font, fst::Vec2(textX, textY), token, toRowColor(seg.color));
-                                    textX += font->measureText(token).x;
-                                }
-                                cursor = end;
-                            }
-
-                            if (cursor < static_cast<int>(rowText.size())) {
-                                const std::string plain = rowText.substr(static_cast<size_t>(cursor));
-                                dl.addText(font, fst::Vec2(textX, textY), plain, toRowColor(theme.colors.text));
-                            }
-                        }
-                    }
-                    dl.popClipRect();
-
-                    if (needsScrollbar) {
-                        const fst::Rect track(listRect.right() - scrollbarWidth, listRect.y(), scrollbarWidth, listRect.height());
-                        const float thumbHeight = std::max(20.0f, (listRect.height() / totalHeight) * listRect.height());
-                        float thumbY = track.y();
-                        if (maxScroll > 0.001f) {
-                            const float t = std::clamp(completionScrollOffset / maxScroll, 0.0f, 1.0f);
-                            thumbY += t * (track.height() - thumbHeight);
-                        }
-                        const fst::Rect thumb(track.x() + 2.0f, thumbY, track.width() - 4.0f, thumbHeight);
-
-                        if (input.isMousePressedRaw(fst::MouseButton::Left) && !ctx.isOccluded(input.mousePos())) {
-                            if (thumb.contains(input.mousePos())) {
-                                completionScrollbarDragging = true;
-                                completionScrollbarDragOffset = input.mousePos().y - thumb.y();
-                            } else if (track.contains(input.mousePos())) {
-                                const float newThumbTop = std::clamp(
-                                    input.mousePos().y - track.y() - thumbHeight * 0.5f,
-                                    0.0f,
-                                    track.height() - thumbHeight);
-                                const float t = (track.height() - thumbHeight) > 0.0f
-                                    ? (newThumbTop / (track.height() - thumbHeight))
-                                    : 0.0f;
-                                completionScrollOffset = t * maxScroll;
-                                completionScrollbarDragging = true;
-                                completionScrollbarDragOffset = thumbHeight * 0.5f;
-                            }
-                        }
-
-                        if (completionScrollbarDragging) {
-                            if (input.isMouseDown(fst::MouseButton::Left)) {
-                                const float newThumbTop = std::clamp(
-                                    input.mousePos().y - track.y() - completionScrollbarDragOffset,
-                                    0.0f,
-                                    track.height() - thumbHeight);
-                                const float t = (track.height() - thumbHeight) > 0.0f
-                                    ? (newThumbTop / (track.height() - thumbHeight))
-                                    : 0.0f;
-                                completionScrollOffset = t * maxScroll;
-                            } else {
-                                completionScrollbarDragging = false;
-                            }
-                        }
-
-                        dl.addRectFilled(track, theme.colors.scrollbarTrack);
-                        const float updatedThumbY = (maxScroll > 0.001f)
-                            ? (track.y() + (completionScrollOffset / maxScroll) * (track.height() - thumbHeight))
-                            : track.y();
-                        const fst::Rect updatedThumb(track.x() + 2.0f, updatedThumbY, track.width() - 4.0f, thumbHeight);
-                        const fst::Color thumbColor = (completionScrollbarDragging || track.contains(input.mousePos()))
-                            ? theme.colors.scrollbarThumbHover
-                            : theme.colors.scrollbarThumb;
-                        dl.addRectFilled(updatedThumb, thumbColor, std::max(2.0f, (scrollbarWidth - 4.0f) * 0.5f));
-                    } else {
-                        completionScrollbarDragging = false;
-                    }
-
-                    if (hoveredIndex >= 0 && input.isMousePressedRaw(fst::MouseButton::Left)) {
-                        completionSelected = hoveredIndex;
-                        applyCompletionItem(completionItems[completionSelected]);
-                    }
-
-                    if (completionSelected >= 0 && completionSelected < static_cast<int>(completionItems.size())) {
-                        const LSPCompletionItem& selectedItem = completionItems[completionSelected];
-                        const bool localItem = selectedItem.detail == "local";
-
-                        fst::LabelOptions sourceOptions;
-                        sourceOptions.color = localItem ? ctx.theme().colors.textSecondary : ctx.theme().colors.primary;
-                        fst::Label(ctx, localItem ? fst::i18n("completion.source.local") : fst::i18n("completion.source.lsp"), sourceOptions);
-                        if (!selectedItem.detail.empty() && !localItem) {
-                            fst::LabelSecondary(ctx, fst::i18n("completion.details", {selectedItem.detail}));
-                        }
-                    }
-
-                    fst::LabelSecondary(ctx, fst::i18n("completion.hint"));
-                }
-
-                ctx.layout().endContainer();
-                fst::EndDockableWindow(ctx);
-            }
-        }
+        HandleCompletionKeyboardNavigation(ctx, input, completionState, applyCompletionFromUi);
+        const CompletionWindowRenderResult completionWindowResult =
+            RenderCompletionPopup(ctx, input, completionState, applyCompletionFromUi);
         if (showConsoleTab) {
             RenderConsolePanel(ctx, docs, activeTab, errorList, compilationOutput, openDocument, clampActiveTab);
         }
@@ -1728,31 +1008,14 @@ int RunFinApp() {
             [&](int themeId) { applyPresetThemeAndRefresh(themeId); },
             [&](const fst::Theme& customTheme) { applyCustomThemeAndRefresh(customTheme); });
 
-        if (completionVisible && completionWindowDrawn &&
+        if (completionVisible && completionWindowResult.drawn &&
             input.isMousePressedRaw(fst::MouseButton::Left)) {
-            if (!completionWindowBounds.contains(input.mousePos())) {
+            if (!completionWindowResult.bounds.contains(input.mousePos())) {
                 closeCompletionPopup();
             }
         }
 
-        fst::DrawList& dl = ctx.drawList();
-        const fst::Theme& theme = ctx.theme();
-        fst::Rect statusRect(0.0f, windowH - statusBarHeight, windowW, statusBarHeight);
-        dl.addRectFilled(statusRect, theme.colors.panelBackground.darker(0.1f));
-        dl.addLine(fst::Vec2(statusRect.x(), statusRect.y()), fst::Vec2(statusRect.right(), statusRect.y()), theme.colors.border);
-
-        if (ctx.font()) {
-            dl.addText(ctx.font(), fst::Vec2(8.0f, statusRect.y() + 4.0f), statusText, theme.colors.textSecondary);
-            if (activeTab >= 0 && activeTab < static_cast<int>(docs.size())) {
-                fst::TextPosition cur = docs[activeTab]->editor.cursor();
-                int diagCount = static_cast<int>(docs[activeTab]->lspDiagnostics.size());
-                std::string rightText = fst::i18n("statusbar.line") + " " + std::to_string(cur.line + 1) +
-                                        ", " + fst::i18n("statusbar.col") + " " + std::to_string(cur.column + 1) +
-                                        " | " + fst::i18n("statusbar.diag") + " " + std::to_string(diagCount) +
-                                        " | " + (docs[activeTab]->path.empty() ? fst::i18n("statusbar.new_file") : docs[activeTab]->path);
-                dl.addText(ctx.font(), fst::Vec2(320.0f, statusRect.y() + 4.0f), rightText, theme.colors.textSecondary);
-            }
-        }
+        RenderStatusBar(ctx, windowW, windowH, statusBarHeight, statusText, docs, activeTab);
 
         fst::RenderDockPreview(ctx);
         menuBar.renderPopups(ctx);
