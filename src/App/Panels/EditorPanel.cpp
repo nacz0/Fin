@@ -3,6 +3,7 @@
 #include "fastener/fastener.h"
 
 #include <algorithm>
+#include <map>
 
 namespace fin {
 
@@ -60,6 +61,37 @@ void RenderEditorPanel(
     clampActiveTab();
 
     if (activeTab >= 0 && activeTab < static_cast<int>(docs.size())) {
+        std::map<int, LSPDiagnostic> bestDiagnosticByLine;
+        for (const LSPDiagnostic& diag : docs[activeTab]->lspDiagnostics) {
+            if (diag.line < 0) {
+                continue;
+            }
+            auto it = bestDiagnosticByLine.find(diag.line);
+            if (it == bestDiagnosticByLine.end() || diag.severity < it->second.severity) {
+                bestDiagnosticByLine[diag.line] = diag;
+            }
+        }
+
+        std::vector<fst::TextLineAnnotation> lineAnnotations;
+        lineAnnotations.reserve(bestDiagnosticByLine.size());
+        for (const auto& [lineIndex, diag] : bestDiagnosticByLine) {
+            fst::TextLineAnnotation annotation;
+            annotation.line = lineIndex;
+            if (diag.severity == 1) {
+                annotation.highlightColor = fst::Color(170, 24, 12, 165);
+                annotation.tooltipTitle = "Error at line " + std::to_string(lineIndex + 1) + ":";
+            } else if (diag.severity == 2) {
+                annotation.highlightColor = fst::Color(150, 96, 0, 130);
+                annotation.tooltipTitle = "Warning at line " + std::to_string(lineIndex + 1) + ":";
+            } else {
+                annotation.highlightColor = fst::Color(18, 98, 150, 95);
+                annotation.tooltipTitle = "Info at line " + std::to_string(lineIndex + 1) + ":";
+            }
+            annotation.tooltipMessage = diag.message;
+            lineAnnotations.push_back(std::move(annotation));
+        }
+        docs[activeTab]->editor.setLineAnnotations(std::move(lineAnnotations));
+
         fst::TextEditorOptions editorOptions;
         editorOptions.fontSize = 14.0f * textScale;
         editorOptions.showLineNumbers = true;
