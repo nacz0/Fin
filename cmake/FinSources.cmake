@@ -8,6 +8,7 @@ set(FIN_CORE_SOURCES
 
 set(FIN_APP_SOURCES
     src/App/FinApp.cpp
+    src/App/FinI18n.cpp
     src/App/FinHelpers.cpp
     src/App/Panels/ConsolePanel.cpp
     src/App/Panels/EditorPanel.cpp

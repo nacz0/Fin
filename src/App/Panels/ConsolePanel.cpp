@@ -15,7 +15,7 @@ void RenderConsolePanel(
     std::string& compilationOutput,
     const OpenDocumentFn& openDocument,
     const ClampActiveTabFn& clampActiveTab) {
-    if (!fst::BeginDockableWindow(ctx, "Konsola")) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.console"))) {
         return;
     }
 
@@ -45,32 +45,32 @@ void RenderConsolePanel(
         }
     }
 
-    fst::Label(ctx, "Wynik kompilacji");
+    fst::Label(ctx, fst::i18n("console.compilation_result"));
     fst::BeginHorizontal(ctx, 14.0f);
     {
         fst::LabelOptions errorsOpt;
         errorsOpt.color = errorCount > 0 ? theme.colors.error : theme.colors.success;
-        fst::Label(ctx, "Bledy: " + std::to_string(errorCount), errorsOpt);
+        fst::Label(ctx, fst::i18n("console.errors", {std::to_string(errorCount)}), errorsOpt);
 
         fst::LabelOptions warningsOpt;
         warningsOpt.color = warningCount > 0 ? theme.colors.warning : theme.colors.textSecondary;
-        fst::Label(ctx, "Ostrzezenia: " + std::to_string(warningCount), warningsOpt);
+        fst::Label(ctx, fst::i18n("console.warnings", {std::to_string(warningCount)}), warningsOpt);
     }
     fst::EndHorizontal(ctx);
     fst::Separator(ctx);
 
     if (!uniqueErrors.empty()) {
-        fst::Label(ctx, "Problemy kompilatora:");
+        fst::Label(ctx, fst::i18n("console.compiler_issues"));
         const int duplicateCount = static_cast<int>(errorList.size() - uniqueErrors.size());
         if (duplicateCount > 0) {
-            fst::LabelSecondary(ctx, "Pominieto duplikaty: " + std::to_string(duplicateCount));
+            fst::LabelSecondary(ctx, fst::i18n("console.duplicates_skipped", {std::to_string(duplicateCount)}));
         }
         for (const ParsedError* errPtr : uniqueErrors) {
             const ParsedError& err = *errPtr;
             const bool canJump = !err.filename.empty() && err.line > 0;
             const std::string location = canJump
                 ? (err.filename + ":" + std::to_string(err.line) + ":" + std::to_string(err.col))
-                : "(bez lokalizacji)";
+                : fst::i18n("console.no_location");
             std::string message = err.message.empty() ? err.fullMessage : err.message;
             if (message.rfind("error: ", 0) == 0) {
                 message.erase(0, 7);
@@ -84,7 +84,7 @@ void RenderConsolePanel(
                 fst::LabelOptions levelOpt;
                 levelOpt.color = err.isError ? theme.colors.error : theme.colors.warning;
                 levelOpt.style = fst::Style().withWidth(62.0f);
-                fst::Label(ctx, err.isError ? "ERROR" : "WARN", levelOpt);
+                fst::Label(ctx, err.isError ? fst::i18n("console.level.error") : fst::i18n("console.level.warn"), levelOpt);
 
                 bool selected = false;
                 fst::SelectableOptions selectableOpt;
@@ -104,15 +104,15 @@ void RenderConsolePanel(
             fst::EndHorizontal(ctx);
 
             if (!canJump) {
-                fst::LabelSecondary(ctx, "Brak lokalizacji do przejscia.");
+                fst::LabelSecondary(ctx, fst::i18n("console.no_jump_location"));
             }
             fst::Separator(ctx);
         }
     } else {
-        fst::LabelSecondary(ctx, "Brak bledow kompilatora.");
+        fst::LabelSecondary(ctx, fst::i18n("console.no_compiler_errors"));
     }
 
-    fst::LabelSecondary(ctx, "Wyjscie kompilacji:");
+    fst::LabelSecondary(ctx, fst::i18n("console.compilation_output"));
     fst::TextAreaOptions outputOptions;
     outputOptions.readonly = true;
     outputOptions.wordWrap = false;

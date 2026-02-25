@@ -46,7 +46,7 @@ enum class ColorPreviewKind {
 };
 
 struct ColorTarget {
-    const char* name;
+    std::string name;
     fst::Color* value;
     ColorPreviewKind preview = ColorPreviewKind::Swatch;
     bool supportsAlpha = false;
@@ -196,7 +196,8 @@ void DrawColorPreview(
 
     const fst::Rect content = bounds.shrunk(10.0f);
     const fst::Rect titleRect(content.x(), content.y(), content.width(), font ? font->lineHeight() : 14.0f);
-    DrawCenteredText(dl, font, titleRect, "Podglad", theme.colors.textSecondary);
+    const std::string previewTitle = fst::i18n("preview.title");
+    DrawCenteredText(dl, font, titleRect, previewTitle, theme.colors.textSecondary);
 
     const float sampleTop = titleRect.bottom() + std::max(6.0f, theme.metrics.paddingSmall);
     const float sampleHeight = std::max(40.0f, content.bottom() - sampleTop);
@@ -211,7 +212,8 @@ void DrawColorPreview(
         case ColorPreviewKind::WindowBackground: {
             dl.addRectFilled(sample, previewColor, innerRadius);
             dl.addRect(sample, theme.colors.border, innerRadius);
-            drawSampleLabel("Tlo okna", ContrastTextColor(previewColor));
+            const std::string label = fst::i18n("preview.window_background");
+            drawSampleLabel(label, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::PanelBackground: {
@@ -219,7 +221,8 @@ void DrawColorPreview(
             const fst::Rect panel = sample.shrunk(14.0f);
             dl.addRectFilled(panel, previewColor, innerRadius);
             dl.addRect(panel, theme.colors.border, innerRadius);
-            drawSampleLabel("Panel", ContrastTextColor(previewColor));
+            const std::string label = fst::i18n("preview.panel");
+            drawSampleLabel(label, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::PopupBackground: {
@@ -227,7 +230,8 @@ void DrawColorPreview(
             const fst::Rect popup(sample.x() + 14.0f, sample.y() + 14.0f, sample.width() - 28.0f, sample.height() - 28.0f);
             dl.addRectFilled(popup, previewColor, innerRadius);
             dl.addRect(popup, theme.colors.border, innerRadius);
-            drawSampleLabel("Popup", ContrastTextColor(previewColor));
+            const std::string label = fst::i18n("preview.popup");
+            drawSampleLabel(label, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::Primary: {
@@ -235,7 +239,8 @@ void DrawColorPreview(
             const fst::Rect button(sample.x() + 16.0f, sample.center().y - 16.0f, sample.width() - 32.0f, 32.0f);
             dl.addRectFilled(button, previewColor, innerRadius);
             dl.addRect(button, theme.colors.border, innerRadius);
-            DrawCenteredText(dl, font, button, "Primary", theme.colors.primaryText);
+            const std::string text = fst::i18n("preview.primary");
+            DrawCenteredText(dl, font, button, text, theme.colors.primaryText);
             break;
         }
         case ColorPreviewKind::PrimaryText: {
@@ -243,7 +248,8 @@ void DrawColorPreview(
             const fst::Rect button(sample.x() + 16.0f, sample.center().y - 16.0f, sample.width() - 32.0f, 32.0f);
             dl.addRectFilled(button, theme.colors.primary, innerRadius);
             dl.addRect(button, theme.colors.border, innerRadius);
-            DrawCenteredText(dl, font, button, "Primary text", previewColor);
+            const std::string text = fst::i18n("preview.primary_text");
+            DrawCenteredText(dl, font, button, text, previewColor);
             break;
         }
         case ColorPreviewKind::Secondary: {
@@ -251,7 +257,8 @@ void DrawColorPreview(
             const fst::Rect button(sample.x() + 16.0f, sample.center().y - 16.0f, sample.width() - 32.0f, 32.0f);
             dl.addRectFilled(button, previewColor, innerRadius);
             dl.addRect(button, theme.colors.border, innerRadius);
-            DrawCenteredText(dl, font, button, "Secondary", ContrastTextColor(previewColor));
+            const std::string text = fst::i18n("preview.secondary");
+            DrawCenteredText(dl, font, button, text, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::Text: {
@@ -259,8 +266,8 @@ void DrawColorPreview(
             dl.addRect(sample, theme.colors.inputBorder, innerRadius);
             const float x = sample.x() + 12.0f;
             const float y = sample.y() + 10.0f;
-            dl.addText(font, fst::Vec2(x, y), "Przykladowy tekst", previewColor);
-            dl.addText(font, fst::Vec2(x, y + 20.0f), "Druga linia", theme.colors.textSecondary);
+            dl.addText(font, fst::Vec2(x, y), fst::i18n("preview.sample_text"), previewColor);
+            dl.addText(font, fst::Vec2(x, y + 20.0f), fst::i18n("preview.sample_second_line"), theme.colors.textSecondary);
             break;
         }
         case ColorPreviewKind::Border: {
@@ -268,7 +275,8 @@ void DrawColorPreview(
             dl.addRect(sample, previewColor, innerRadius);
             const fst::Rect inner = sample.shrunk(8.0f);
             dl.addRect(inner, previewColor.withAlpha(static_cast<uint8_t>(180)), std::max(2.0f, innerRadius - 1.0f));
-            drawSampleLabel("Obramowanie", theme.colors.textSecondary);
+            const std::string label = fst::i18n("preview.border");
+            drawSampleLabel(label, theme.colors.textSecondary);
             break;
         }
         case ColorPreviewKind::InputBackground: {
@@ -276,7 +284,8 @@ void DrawColorPreview(
             const fst::Rect input(sample.x() + 14.0f, sample.center().y - 16.0f, sample.width() - 28.0f, 32.0f);
             dl.addRectFilled(input, previewColor, innerRadius);
             dl.addRect(input, theme.colors.inputBorder, innerRadius);
-            DrawCenteredText(dl, font, input, "Input", theme.colors.text);
+            const std::string text = fst::i18n("preview.input");
+            DrawCenteredText(dl, font, input, text, theme.colors.text);
             break;
         }
         case ColorPreviewKind::InputBorder: {
@@ -284,7 +293,8 @@ void DrawColorPreview(
             const fst::Rect input(sample.x() + 14.0f, sample.center().y - 16.0f, sample.width() - 28.0f, 32.0f);
             dl.addRectFilled(input, theme.colors.inputBackground, innerRadius);
             dl.addRect(input, previewColor, innerRadius);
-            DrawCenteredText(dl, font, input, "Input", theme.colors.text);
+            const std::string text = fst::i18n("preview.input");
+            DrawCenteredText(dl, font, input, text, theme.colors.text);
             break;
         }
         case ColorPreviewKind::InputFocused: {
@@ -293,7 +303,8 @@ void DrawColorPreview(
             dl.addRectFilled(input, theme.colors.inputBackground, innerRadius);
             dl.addRect(input.expanded(1.5f), previewColor.withAlpha(static_cast<uint8_t>(140)), innerRadius + 1.5f);
             dl.addRect(input, previewColor, innerRadius);
-            DrawCenteredText(dl, font, input, "Focused", theme.colors.text);
+            const std::string text = fst::i18n("preview.focused");
+            DrawCenteredText(dl, font, input, text, theme.colors.text);
             break;
         }
         case ColorPreviewKind::Button: {
@@ -301,7 +312,8 @@ void DrawColorPreview(
             const fst::Rect button(sample.x() + 16.0f, sample.center().y - 16.0f, sample.width() - 32.0f, 32.0f);
             dl.addRectFilled(button, previewColor, innerRadius);
             dl.addRect(button, theme.colors.border, innerRadius);
-            DrawCenteredText(dl, font, button, "Przycisk", theme.colors.buttonText);
+            const std::string text = fst::i18n("preview.button");
+            DrawCenteredText(dl, font, button, text, theme.colors.buttonText);
             break;
         }
         case ColorPreviewKind::ButtonText: {
@@ -309,14 +321,16 @@ void DrawColorPreview(
             const fst::Rect button(sample.x() + 16.0f, sample.center().y - 16.0f, sample.width() - 32.0f, 32.0f);
             dl.addRectFilled(button, theme.colors.buttonBackground, innerRadius);
             dl.addRect(button, theme.colors.border, innerRadius);
-            DrawCenteredText(dl, font, button, "Przycisk", previewColor);
+            const std::string text = fst::i18n("preview.button");
+            DrawCenteredText(dl, font, button, text, previewColor);
             break;
         }
         case ColorPreviewKind::Status: {
             dl.addRectFilled(sample, theme.colors.windowBackground, innerRadius);
             const fst::Rect badge(sample.x() + 26.0f, sample.center().y - 14.0f, sample.width() - 52.0f, 28.0f);
             dl.addRectFilled(badge, previewColor, 14.0f);
-            DrawCenteredText(dl, font, badge, "STATUS", ContrastTextColor(previewColor));
+            const std::string text = fst::i18n("preview.status");
+            DrawCenteredText(dl, font, badge, text, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::Selection: {
@@ -324,7 +338,8 @@ void DrawColorPreview(
             dl.addRect(sample, theme.colors.inputBorder, innerRadius);
             const fst::Rect selected(sample.x() + 12.0f, sample.y() + 12.0f, sample.width() - 24.0f, 28.0f);
             dl.addRectFilled(selected, previewColor, std::max(2.0f, innerRadius - 1.0f));
-            DrawCenteredText(dl, font, selected, "Zaznaczenie", theme.colors.selectionText);
+            const std::string text = fst::i18n("preview.selection");
+            DrawCenteredText(dl, font, selected, text, theme.colors.selectionText);
             break;
         }
         case ColorPreviewKind::SelectionText: {
@@ -332,7 +347,8 @@ void DrawColorPreview(
             dl.addRect(sample, theme.colors.inputBorder, innerRadius);
             const fst::Rect selected(sample.x() + 12.0f, sample.y() + 12.0f, sample.width() - 24.0f, 28.0f);
             dl.addRectFilled(selected, theme.colors.selection, std::max(2.0f, innerRadius - 1.0f));
-            DrawCenteredText(dl, font, selected, "Zaznaczenie", previewColor);
+            const std::string text = fst::i18n("preview.selection");
+            DrawCenteredText(dl, font, selected, text, previewColor);
             break;
         }
         case ColorPreviewKind::ScrollbarTrack: {
@@ -366,7 +382,8 @@ void DrawColorPreview(
             dl.addShadow(card, previewColor, std::max(4.0f, theme.metrics.shadowSize * 0.8f), innerRadius);
             dl.addRectFilled(card, theme.colors.panelBackground, innerRadius);
             dl.addRect(card, theme.colors.border, innerRadius);
-            drawSampleLabel("Cien", theme.colors.textSecondary);
+            const std::string label = fst::i18n("color.shadow");
+            drawSampleLabel(label, theme.colors.textSecondary);
             break;
         }
         case ColorPreviewKind::TooltipBackground: {
@@ -374,7 +391,8 @@ void DrawColorPreview(
             const fst::Rect tip(sample.x() + 14.0f, sample.y() + 14.0f, sample.width() - 28.0f, sample.height() - 28.0f);
             dl.addRectFilled(tip, previewColor, innerRadius);
             dl.addRect(tip, theme.colors.tooltipBorder, innerRadius);
-            DrawCenteredText(dl, font, tip, "Tooltip", theme.colors.tooltipText);
+            const std::string text = fst::i18n("preview.tooltip");
+            DrawCenteredText(dl, font, tip, text, theme.colors.tooltipText);
             break;
         }
         case ColorPreviewKind::TooltipText: {
@@ -382,7 +400,8 @@ void DrawColorPreview(
             const fst::Rect tip(sample.x() + 14.0f, sample.y() + 14.0f, sample.width() - 28.0f, sample.height() - 28.0f);
             dl.addRectFilled(tip, theme.colors.tooltipBackground, innerRadius);
             dl.addRect(tip, theme.colors.tooltipBorder, innerRadius);
-            DrawCenteredText(dl, font, tip, "Tooltip", previewColor);
+            const std::string text = fst::i18n("preview.tooltip");
+            DrawCenteredText(dl, font, tip, text, previewColor);
             break;
         }
         case ColorPreviewKind::TooltipBorder: {
@@ -390,7 +409,8 @@ void DrawColorPreview(
             const fst::Rect tip(sample.x() + 14.0f, sample.y() + 14.0f, sample.width() - 28.0f, sample.height() - 28.0f);
             dl.addRectFilled(tip, theme.colors.tooltipBackground, innerRadius);
             dl.addRect(tip, previewColor, innerRadius);
-            DrawCenteredText(dl, font, tip, "Tooltip", theme.colors.tooltipText);
+            const std::string text = fst::i18n("preview.tooltip");
+            DrawCenteredText(dl, font, tip, text, theme.colors.tooltipText);
             break;
         }
         case ColorPreviewKind::DockPreviewOverlay: {
@@ -398,7 +418,8 @@ void DrawColorPreview(
             dl.addRect(sample, theme.colors.border, innerRadius);
             const fst::Rect overlay(sample.x() + 14.0f, sample.y() + 12.0f, sample.width() - 28.0f, sample.height() - 24.0f);
             dl.addRectFilled(overlay, previewColor, innerRadius);
-            drawSampleLabel("Dock preview", theme.colors.textSecondary);
+            const std::string label = fst::i18n("preview.dock_preview");
+            drawSampleLabel(label, theme.colors.textSecondary);
             break;
         }
         case ColorPreviewKind::DockTab: {
@@ -407,7 +428,8 @@ void DrawColorPreview(
             dl.addRectFilled(tabs, theme.colors.panelBackground, innerRadius);
             const fst::Rect activeTab(tabs.x() + 6.0f, tabs.y() + 4.0f, 82.0f, tabs.height() - 8.0f);
             dl.addRectFilled(activeTab, previewColor, std::max(2.0f, innerRadius - 1.0f));
-            DrawCenteredText(dl, font, activeTab, "Tab", ContrastTextColor(previewColor));
+            const std::string text = fst::i18n("preview.tab");
+            DrawCenteredText(dl, font, activeTab, text, ContrastTextColor(previewColor));
             break;
         }
         case ColorPreviewKind::DockSplitter: {
@@ -463,17 +485,21 @@ void RenderPersonalizationPanel(
 
     fst::DockableWindowOptions windowOptions;
     windowOptions.open = &showPersonalizationWindow;
-    if (!fst::BeginDockableWindow(ctx, "Personalizacja", windowOptions)) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.personalization"), windowOptions)) {
         return;
     }
 
     const fst::Rect bounds = ctx.layout().currentBounds();
     beginScrollablePanelContent(ctx, "personalization_scroll", bounds);
 
-    static const std::vector<std::string> presetNames = {"Ciemny", "Jasny", "Retro"};
+    const std::vector<std::string> presetNames = {
+        fst::i18n("theme.dark"),
+        fst::i18n("theme.light"),
+        fst::i18n("theme.retro"),
+    };
     selectedPreset = std::clamp(selectedPreset, 0, 2);
     const int presetBefore = selectedPreset;
-    (void)fst::ComboBox(ctx, "Motyw bazowy", selectedPreset, presetNames);
+    (void)fst::ComboBox(ctx, fst::i18n("personalization.base_theme"), selectedPreset, presetNames);
     selectedPreset = std::clamp(selectedPreset, 0, 2);
 
     bool loadedPreset = false;
@@ -490,60 +516,60 @@ void RenderPersonalizationPanel(
         loadPreset(selectedPreset);
     }
 
-    if (fst::Button(ctx, "Wczytaj motyw bazowy")) {
+    if (fst::Button(ctx, fst::i18n("personalization.load_base_theme"))) {
         loadPreset(selectedPreset);
     }
-    if (fst::Button(ctx, "Odwiez z aktywnego motywu")) {
+    if (fst::Button(ctx, fst::i18n("personalization.refresh_from_active"))) {
         editableTheme = ctx.theme();
         lastAppliedFingerprint = ThemeFingerprint(editableTheme);
         hasAppliedFingerprint = true;
     }
 
     fst::Separator(ctx);
-    if (fst::CollapsingHeader(ctx, "Kolory (zaawansowane)", openThemeColors)) {
+    if (fst::CollapsingHeader(ctx, fst::i18n("personalization.colors_advanced"), openThemeColors)) {
         std::vector<ColorTarget> colorTargets = {
-            {"Tlo okna", &editableTheme.colors.windowBackground, ColorPreviewKind::WindowBackground},
-            {"Tlo panelu", &editableTheme.colors.panelBackground, ColorPreviewKind::PanelBackground},
-            {"Tlo popup", &editableTheme.colors.popupBackground, ColorPreviewKind::PopupBackground},
-            {"Primary", &editableTheme.colors.primary, ColorPreviewKind::Primary},
-            {"Primary hover", &editableTheme.colors.primaryHover, ColorPreviewKind::Primary},
-            {"Primary active", &editableTheme.colors.primaryActive, ColorPreviewKind::Primary},
-            {"Primary text", &editableTheme.colors.primaryText, ColorPreviewKind::PrimaryText},
-            {"Secondary", &editableTheme.colors.secondary, ColorPreviewKind::Secondary},
-            {"Secondary hover", &editableTheme.colors.secondaryHover, ColorPreviewKind::Secondary},
-            {"Secondary active", &editableTheme.colors.secondaryActive, ColorPreviewKind::Secondary},
-            {"Tekst", &editableTheme.colors.text, ColorPreviewKind::Text},
-            {"Tekst disabled", &editableTheme.colors.textDisabled, ColorPreviewKind::Text},
-            {"Tekst secondary", &editableTheme.colors.textSecondary, ColorPreviewKind::Text},
-            {"Obramowanie", &editableTheme.colors.border, ColorPreviewKind::Border},
-            {"Obramowanie hover", &editableTheme.colors.borderHover, ColorPreviewKind::Border},
-            {"Obramowanie focused", &editableTheme.colors.borderFocused, ColorPreviewKind::Border},
-            {"Tlo inputu", &editableTheme.colors.inputBackground, ColorPreviewKind::InputBackground},
-            {"Obramowanie inputu", &editableTheme.colors.inputBorder, ColorPreviewKind::InputBorder},
-            {"Input focused", &editableTheme.colors.inputFocused, ColorPreviewKind::InputFocused},
-            {"Przycisk", &editableTheme.colors.buttonBackground, ColorPreviewKind::Button},
-            {"Przycisk hover", &editableTheme.colors.buttonHover, ColorPreviewKind::Button},
-            {"Przycisk active", &editableTheme.colors.buttonActive, ColorPreviewKind::Button},
-            {"Tekst przycisku", &editableTheme.colors.buttonText, ColorPreviewKind::ButtonText},
-            {"Success", &editableTheme.colors.success, ColorPreviewKind::Status},
-            {"Warning", &editableTheme.colors.warning, ColorPreviewKind::Status},
-            {"Error", &editableTheme.colors.error, ColorPreviewKind::Status},
-            {"Info", &editableTheme.colors.info, ColorPreviewKind::Status},
-            {"Selection", &editableTheme.colors.selection, ColorPreviewKind::Selection},
-            {"Selection text", &editableTheme.colors.selectionText, ColorPreviewKind::SelectionText},
-            {"Scrollbar track", &editableTheme.colors.scrollbarTrack, ColorPreviewKind::ScrollbarTrack},
-            {"Scrollbar thumb", &editableTheme.colors.scrollbarThumb, ColorPreviewKind::ScrollbarThumb},
-            {"Scrollbar thumb hover", &editableTheme.colors.scrollbarThumbHover, ColorPreviewKind::ScrollbarThumbHover},
-            {"Cien", &editableTheme.colors.shadow, ColorPreviewKind::Shadow, true},
-            {"Tooltip tlo", &editableTheme.colors.tooltipBackground, ColorPreviewKind::TooltipBackground},
-            {"Tooltip tekst", &editableTheme.colors.tooltipText, ColorPreviewKind::TooltipText},
-            {"Tooltip border", &editableTheme.colors.tooltipBorder, ColorPreviewKind::TooltipBorder},
-            {"Dock preview overlay", &editableTheme.colors.dockPreviewOverlay, ColorPreviewKind::DockPreviewOverlay, true},
-            {"Dock tab active", &editableTheme.colors.dockTabActive, ColorPreviewKind::DockTab},
-            {"Dock tab inactive", &editableTheme.colors.dockTabInactive, ColorPreviewKind::DockTab},
-            {"Dock tab hover", &editableTheme.colors.dockTabHover, ColorPreviewKind::DockTab},
-            {"Dock splitter", &editableTheme.colors.dockSplitter, ColorPreviewKind::DockSplitter},
-            {"Dock splitter hover", &editableTheme.colors.dockSplitterHover, ColorPreviewKind::DockSplitterHover},
+            {fst::i18n("color.window_background"), &editableTheme.colors.windowBackground, ColorPreviewKind::WindowBackground},
+            {fst::i18n("color.panel_background"), &editableTheme.colors.panelBackground, ColorPreviewKind::PanelBackground},
+            {fst::i18n("color.popup_background"), &editableTheme.colors.popupBackground, ColorPreviewKind::PopupBackground},
+            {fst::i18n("color.primary"), &editableTheme.colors.primary, ColorPreviewKind::Primary},
+            {fst::i18n("color.primary_hover"), &editableTheme.colors.primaryHover, ColorPreviewKind::Primary},
+            {fst::i18n("color.primary_active"), &editableTheme.colors.primaryActive, ColorPreviewKind::Primary},
+            {fst::i18n("color.primary_text"), &editableTheme.colors.primaryText, ColorPreviewKind::PrimaryText},
+            {fst::i18n("color.secondary"), &editableTheme.colors.secondary, ColorPreviewKind::Secondary},
+            {fst::i18n("color.secondary_hover"), &editableTheme.colors.secondaryHover, ColorPreviewKind::Secondary},
+            {fst::i18n("color.secondary_active"), &editableTheme.colors.secondaryActive, ColorPreviewKind::Secondary},
+            {fst::i18n("color.text"), &editableTheme.colors.text, ColorPreviewKind::Text},
+            {fst::i18n("color.text_disabled"), &editableTheme.colors.textDisabled, ColorPreviewKind::Text},
+            {fst::i18n("color.text_secondary"), &editableTheme.colors.textSecondary, ColorPreviewKind::Text},
+            {fst::i18n("color.border"), &editableTheme.colors.border, ColorPreviewKind::Border},
+            {fst::i18n("color.border_hover"), &editableTheme.colors.borderHover, ColorPreviewKind::Border},
+            {fst::i18n("color.border_focused"), &editableTheme.colors.borderFocused, ColorPreviewKind::Border},
+            {fst::i18n("color.input_background"), &editableTheme.colors.inputBackground, ColorPreviewKind::InputBackground},
+            {fst::i18n("color.input_border"), &editableTheme.colors.inputBorder, ColorPreviewKind::InputBorder},
+            {fst::i18n("color.input_focused"), &editableTheme.colors.inputFocused, ColorPreviewKind::InputFocused},
+            {fst::i18n("color.button"), &editableTheme.colors.buttonBackground, ColorPreviewKind::Button},
+            {fst::i18n("color.button_hover"), &editableTheme.colors.buttonHover, ColorPreviewKind::Button},
+            {fst::i18n("color.button_active"), &editableTheme.colors.buttonActive, ColorPreviewKind::Button},
+            {fst::i18n("color.button_text"), &editableTheme.colors.buttonText, ColorPreviewKind::ButtonText},
+            {fst::i18n("color.success"), &editableTheme.colors.success, ColorPreviewKind::Status},
+            {fst::i18n("color.warning"), &editableTheme.colors.warning, ColorPreviewKind::Status},
+            {fst::i18n("color.error"), &editableTheme.colors.error, ColorPreviewKind::Status},
+            {fst::i18n("color.info"), &editableTheme.colors.info, ColorPreviewKind::Status},
+            {fst::i18n("color.selection"), &editableTheme.colors.selection, ColorPreviewKind::Selection},
+            {fst::i18n("color.selection_text"), &editableTheme.colors.selectionText, ColorPreviewKind::SelectionText},
+            {fst::i18n("color.scrollbar_track"), &editableTheme.colors.scrollbarTrack, ColorPreviewKind::ScrollbarTrack},
+            {fst::i18n("color.scrollbar_thumb"), &editableTheme.colors.scrollbarThumb, ColorPreviewKind::ScrollbarThumb},
+            {fst::i18n("color.scrollbar_thumb_hover"), &editableTheme.colors.scrollbarThumbHover, ColorPreviewKind::ScrollbarThumbHover},
+            {fst::i18n("color.shadow"), &editableTheme.colors.shadow, ColorPreviewKind::Shadow, true},
+            {fst::i18n("color.tooltip_background"), &editableTheme.colors.tooltipBackground, ColorPreviewKind::TooltipBackground},
+            {fst::i18n("color.tooltip_text"), &editableTheme.colors.tooltipText, ColorPreviewKind::TooltipText},
+            {fst::i18n("color.tooltip_border"), &editableTheme.colors.tooltipBorder, ColorPreviewKind::TooltipBorder},
+            {fst::i18n("color.dock_preview_overlay"), &editableTheme.colors.dockPreviewOverlay, ColorPreviewKind::DockPreviewOverlay, true},
+            {fst::i18n("color.dock_tab_active"), &editableTheme.colors.dockTabActive, ColorPreviewKind::DockTab},
+            {fst::i18n("color.dock_tab_inactive"), &editableTheme.colors.dockTabInactive, ColorPreviewKind::DockTab},
+            {fst::i18n("color.dock_tab_hover"), &editableTheme.colors.dockTabHover, ColorPreviewKind::DockTab},
+            {fst::i18n("color.dock_splitter"), &editableTheme.colors.dockSplitter, ColorPreviewKind::DockSplitter},
+            {fst::i18n("color.dock_splitter_hover"), &editableTheme.colors.dockSplitterHover, ColorPreviewKind::DockSplitterHover},
         };
 
         if (!colorTargets.empty()) {
@@ -554,11 +580,11 @@ void RenderPersonalizationPanel(
             for (const ColorTarget& target : colorTargets) {
                 colorNames.push_back(target.name);
             }
-            (void)fst::ComboBox(ctx, "Edytowany kolor", selectedColorIndex, colorNames);
+            (void)fst::ComboBox(ctx, fst::i18n("personalization.edited_color"), selectedColorIndex, colorNames);
             selectedColorIndex = std::clamp(selectedColorIndex, 0, maxColorIndex);
 
             ColorTarget& current = colorTargets[static_cast<size_t>(selectedColorIndex)];
-            fst::Label(ctx, std::string("Aktualnie: ") + current.name);
+            fst::Label(ctx, fst::i18n("personalization.current", {current.name}));
 
             const float panelWidth = std::max(260.0f, bounds.width() - 20.0f);
             const float spacing = std::max(6.0f, ctx.theme().metrics.itemSpacing);
@@ -571,7 +597,8 @@ void RenderPersonalizationPanel(
             fst::ColorPickerOptions pickerOptions;
             pickerOptions.showAlpha = current.supportsAlpha;
             pickerOptions.style = fst::Style().withWidth(pickerWidth);
-            (void)fst::ColorPicker(ctx, "Picker", *current.value, pickerOptions);
+            const std::string pickerLabel = fst::i18n("personalization.picker");
+            (void)fst::ColorPicker(ctx, pickerLabel.c_str(), *current.value, pickerOptions);
             const fst::Rect previewBounds = fst::Allocate(ctx, previewWidth, std::max(170.0f, pickerHeight));
             DrawColorPreview(ctx, editableTheme, current, previewBounds);
             fst::EndHorizontal(ctx);
@@ -598,42 +625,48 @@ void RenderPersonalizationPanel(
         }
     }
 
-    if (fst::CollapsingHeader(ctx, "Metryki i rozmiary", openMetrics)) {
+    if (fst::CollapsingHeader(ctx, fst::i18n("personalization.metrics_sizes"), openMetrics)) {
         fst::SliderOptions metricSlider;
         metricSlider.decimals = 1;
 
-        (void)fst::Slider(ctx, "Padding small", editableTheme.metrics.paddingSmall, 0.0f, 16.0f, metricSlider);
-        (void)fst::Slider(ctx, "Padding medium", editableTheme.metrics.paddingMedium, 0.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Padding large", editableTheme.metrics.paddingLarge, 0.0f, 40.0f, metricSlider);
-        (void)fst::Slider(ctx, "Margin small", editableTheme.metrics.marginSmall, 0.0f, 16.0f, metricSlider);
-        (void)fst::Slider(ctx, "Margin medium", editableTheme.metrics.marginMedium, 0.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Margin large", editableTheme.metrics.marginLarge, 0.0f, 40.0f, metricSlider);
-        (void)fst::Slider(ctx, "Item spacing", editableTheme.metrics.itemSpacing, 0.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Wysokosc przycisku", editableTheme.metrics.buttonHeight, 20.0f, 64.0f, metricSlider);
-        (void)fst::Slider(ctx, "Wysokosc inputu", editableTheme.metrics.inputHeight, 20.0f, 64.0f, metricSlider);
-        (void)fst::Slider(ctx, "Wysokosc suwaka", editableTheme.metrics.sliderHeight, 12.0f, 40.0f, metricSlider);
-        (void)fst::Slider(ctx, "Rozmiar checkboxa", editableTheme.metrics.checkboxSize, 12.0f, 36.0f, metricSlider);
-        (void)fst::Slider(ctx, "Szerokosc scrollbara", editableTheme.metrics.scrollbarWidth, 6.0f, 30.0f, metricSlider);
-        (void)fst::Slider(ctx, "Szerokosc obramowania", editableTheme.metrics.borderWidth, 0.0f, 4.0f, metricSlider);
-        (void)fst::Slider(ctx, "Promien rogow", editableTheme.metrics.borderRadius, 0.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Promien rogow small", editableTheme.metrics.borderRadiusSmall, 0.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Promien rogow large", editableTheme.metrics.borderRadiusLarge, 0.0f, 32.0f, metricSlider);
-        (void)fst::Slider(ctx, "Font size", editableTheme.metrics.fontSize, 10.0f, 24.0f, metricSlider);
-        (void)fst::Slider(ctx, "Font size small", editableTheme.metrics.fontSizeSmall, 8.0f, 20.0f, metricSlider);
-        (void)fst::Slider(ctx, "Font size large", editableTheme.metrics.fontSizeLarge, 12.0f, 34.0f, metricSlider);
-        (void)fst::Slider(ctx, "Font heading", editableTheme.metrics.fontSizeHeading, 16.0f, 42.0f, metricSlider);
-        (void)fst::Slider(ctx, "Anim duration", editableTheme.metrics.animationDuration, 0.0f, 0.6f, metricSlider);
-        (void)fst::Slider(ctx, "Shadow size", editableTheme.metrics.shadowSize, 0.0f, 20.0f, metricSlider);
-        (void)fst::Slider(ctx, "Shadow offset", editableTheme.metrics.shadowOffset, 0.0f, 12.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.padding_small"), editableTheme.metrics.paddingSmall, 0.0f, 16.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.padding_medium"), editableTheme.metrics.paddingMedium, 0.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.padding_large"), editableTheme.metrics.paddingLarge, 0.0f, 40.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.margin_small"), editableTheme.metrics.marginSmall, 0.0f, 16.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.margin_medium"), editableTheme.metrics.marginMedium, 0.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.margin_large"), editableTheme.metrics.marginLarge, 0.0f, 40.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.item_spacing"), editableTheme.metrics.itemSpacing, 0.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.button_height"), editableTheme.metrics.buttonHeight, 20.0f, 64.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.input_height"), editableTheme.metrics.inputHeight, 20.0f, 64.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.slider_height"), editableTheme.metrics.sliderHeight, 12.0f, 40.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.checkbox_size"), editableTheme.metrics.checkboxSize, 12.0f, 36.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.scrollbar_width"), editableTheme.metrics.scrollbarWidth, 6.0f, 30.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.border_width"), editableTheme.metrics.borderWidth, 0.0f, 4.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.border_radius"), editableTheme.metrics.borderRadius, 0.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.border_radius_small"), editableTheme.metrics.borderRadiusSmall, 0.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.border_radius_large"), editableTheme.metrics.borderRadiusLarge, 0.0f, 32.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.font_size"), editableTheme.metrics.fontSize, 10.0f, 24.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.font_size_small"), editableTheme.metrics.fontSizeSmall, 8.0f, 20.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.font_size_large"), editableTheme.metrics.fontSizeLarge, 12.0f, 34.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.font_heading"), editableTheme.metrics.fontSizeHeading, 16.0f, 42.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.animation_duration"), editableTheme.metrics.animationDuration, 0.0f, 0.6f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.shadow_size"), editableTheme.metrics.shadowSize, 0.0f, 20.0f, metricSlider);
+        (void)fst::Slider(ctx, fst::i18n("metrics.shadow_offset"), editableTheme.metrics.shadowOffset, 0.0f, 12.0f, metricSlider);
     }
 
-    if (fst::CollapsingHeader(ctx, "Status i docking", openStatusAndDocking)) {
-        (void)fst::ColorPicker(ctx, "Success", editableTheme.colors.success);
-        (void)fst::ColorPicker(ctx, "Warning", editableTheme.colors.warning);
-        (void)fst::ColorPicker(ctx, "Error", editableTheme.colors.error);
-        (void)fst::ColorPicker(ctx, "Info", editableTheme.colors.info);
-        (void)fst::ColorPicker(ctx, "Dock splitter", editableTheme.colors.dockSplitter);
-        (void)fst::ColorPicker(ctx, "Dock splitter hover", editableTheme.colors.dockSplitterHover);
+    if (fst::CollapsingHeader(ctx, fst::i18n("personalization.status_docking"), openStatusAndDocking)) {
+        const std::string successLabel = fst::i18n("color.success");
+        const std::string warningLabel = fst::i18n("color.warning");
+        const std::string errorLabel = fst::i18n("color.error");
+        const std::string infoLabel = fst::i18n("color.info");
+        const std::string splitterLabel = fst::i18n("color.dock_splitter");
+        const std::string splitterHoverLabel = fst::i18n("color.dock_splitter_hover");
+        (void)fst::ColorPicker(ctx, successLabel.c_str(), editableTheme.colors.success);
+        (void)fst::ColorPicker(ctx, warningLabel.c_str(), editableTheme.colors.warning);
+        (void)fst::ColorPicker(ctx, errorLabel.c_str(), editableTheme.colors.error);
+        (void)fst::ColorPicker(ctx, infoLabel.c_str(), editableTheme.colors.info);
+        (void)fst::ColorPicker(ctx, splitterLabel.c_str(), editableTheme.colors.dockSplitter);
+        (void)fst::ColorPicker(ctx, splitterHoverLabel.c_str(), editableTheme.colors.dockSplitterHover);
     }
 
     if (!loadedPreset) {
@@ -645,7 +678,7 @@ void RenderPersonalizationPanel(
         }
     }
 
-    fst::LabelSecondary(ctx, "Zmiany sa stosowane na zywo.");
+    fst::LabelSecondary(ctx, fst::i18n("personalization.live_apply"));
 
     endScrollablePanelContent(ctx, "personalization_scroll", bounds);
     fst::EndDockableWindow(ctx);

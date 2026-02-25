@@ -20,14 +20,14 @@ fst::Color DiagnosticColor(const fst::Theme& theme, int severity) {
     }
 }
 
-const char* DiagnosticLabel(int severity) {
+std::string DiagnosticLabel(int severity) {
     switch (severity) {
         case 1:
-            return "ERROR";
+            return fst::i18n("lsp.severity.error");
         case 2:
-            return "WARN";
+            return fst::i18n("lsp.severity.warn");
         default:
-            return "INFO";
+            return fst::i18n("lsp.severity.info");
     }
 }
 
@@ -37,7 +37,7 @@ void RenderLspDiagnosticsPanel(
     fst::Context& ctx,
     std::vector<std::unique_ptr<DocumentTab>>& docs,
     int activeTab) {
-    if (!fst::BeginDockableWindow(ctx, "Diagnostyka LSP")) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.lsp_diagnostics"))) {
         return;
     }
 
@@ -46,7 +46,7 @@ void RenderLspDiagnosticsPanel(
     const fst::Theme& theme = ctx.theme();
 
     if (activeTab < 0 || activeTab >= static_cast<int>(docs.size())) {
-        fst::LabelSecondary(ctx, "Brak aktywnego dokumentu.");
+        fst::LabelSecondary(ctx, fst::i18n("lsp.no_active_document"));
         endScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
         fst::EndDockableWindow(ctx);
         return;
@@ -71,27 +71,27 @@ void RenderLspDiagnosticsPanel(
     const std::string source = tab.path.empty() ? tab.name : tab.path;
     fst::LabelOptions sourceOpt;
     sourceOpt.color = theme.colors.textSecondary;
-    fst::Label(ctx, "Plik: " + source, sourceOpt);
+    fst::Label(ctx, fst::i18n("lsp.file", {source}), sourceOpt);
 
     fst::BeginHorizontal(ctx, 12.0f);
     {
         fst::LabelOptions errorOpt;
         errorOpt.color = errors > 0 ? theme.colors.error : theme.colors.textSecondary;
-        fst::Label(ctx, "Error: " + std::to_string(errors), errorOpt);
+        fst::Label(ctx, fst::i18n("lsp.errors", {std::to_string(errors)}), errorOpt);
 
         fst::LabelOptions warningOpt;
         warningOpt.color = warnings > 0 ? theme.colors.warning : theme.colors.textSecondary;
-        fst::Label(ctx, "Warning: " + std::to_string(warnings), warningOpt);
+        fst::Label(ctx, fst::i18n("lsp.warnings", {std::to_string(warnings)}), warningOpt);
 
         fst::LabelOptions infoOpt;
         infoOpt.color = infos > 0 ? theme.colors.info : theme.colors.textSecondary;
-        fst::Label(ctx, "Info: " + std::to_string(infos), infoOpt);
+        fst::Label(ctx, fst::i18n("lsp.infos", {std::to_string(infos)}), infoOpt);
     }
     fst::EndHorizontal(ctx);
     fst::Separator(ctx);
 
     if (diagnostics.empty()) {
-        fst::LabelSecondary(ctx, "Brak diagnostyk LSP dla aktywnej karty.");
+        fst::LabelSecondary(ctx, fst::i18n("lsp.no_diagnostics"));
         endScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
         fst::EndDockableWindow(ctx);
         return;

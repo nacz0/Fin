@@ -8,6 +8,7 @@ void SaveConfig(const AppConfig& config) {
     std::ofstream out(CONFIG_FILE);
     if (out.is_open()) {
         out << "dir=" << config.lastDirectory << "\n";
+        out << "lang=" << config.language << "\n";
         out << "zoom=" << config.zoom << "\n";
         out << "width=" << config.windowWidth << "\n";
         out << "height=" << config.windowHeight << "\n";
@@ -42,6 +43,7 @@ AppConfig LoadConfig() {
                 std::string value = line.substr(sep + 1);
 
                 if (key == "dir") config.lastDirectory = value;
+                else if (key == "lang") config.language = value;
                 else if (key == "zoom") config.zoom = std::stof(value);
                 else if (key == "width") config.windowWidth = std::stoi(value);
                 else if (key == "height") config.windowHeight = std::stoi(value);

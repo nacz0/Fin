@@ -1,7 +1,9 @@
 #include "FileManager.h"
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <memory>
 #include <vector>
@@ -45,8 +47,21 @@ std::string ExecCommand(const char* cmd) {
     return result;
 }
 
-std::string ShowOpenFileDialog(const std::string& initialDir) {
+namespace {
+
+bool IsEnglishLocale(std::string locale) {
+    std::transform(locale.begin(), locale.end(), locale.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return locale.rfind("en", 0) == 0;
+}
+
+} // namespace
+
+std::string ShowOpenFileDialog(const std::string& initialDir, const std::string& locale) {
 #ifdef _WIN32
+    const bool english = IsEnglishLocale(locale);
+
     auto utf8ToWide = [](const std::string& value) -> std::wstring {
         if (value.empty()) {
             return std::wstring();
@@ -85,7 +100,9 @@ std::string ShowOpenFileDialog(const std::string& initialDir) {
     ofn.lStructSize = sizeof(ofn);
     ofn.lpstrFile = fileBuffer.data();
     ofn.nMaxFile = static_cast<DWORD>(fileBuffer.size());
-    ofn.lpstrFilter = L"Pliki kodu\0*.cpp;*.c;*.h;*.hpp;*.cc;*.cxx;*.hh\0Wszystkie pliki\0*.*\0";
+    ofn.lpstrFilter = english
+        ? L"Code files\0*.cpp;*.c;*.h;*.hpp;*.cc;*.cxx;*.hh\0All files\0*.*\0"
+        : L"Pliki kodu\0*.cpp;*.c;*.h;*.hpp;*.cc;*.cxx;*.hh\0Wszystkie pliki\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = initialDirW.empty() ? nullptr : initialDirW.c_str();
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_HIDEREADONLY;
@@ -96,12 +113,15 @@ std::string ShowOpenFileDialog(const std::string& initialDir) {
     return wideToUtf8(ofn.lpstrFile);
 #else
     (void)initialDir;
+    (void)locale;
     return std::string();
 #endif
 }
 
-std::string ShowSaveFileDialog(const std::string& suggestedName, const std::string& initialDir) {
+std::string ShowSaveFileDialog(const std::string& suggestedName, const std::string& initialDir, const std::string& locale) {
 #ifdef _WIN32
+    const bool english = IsEnglishLocale(locale);
+
     auto utf8ToWide = [](const std::string& value) -> std::wstring {
         if (value.empty()) {
             return std::wstring();
@@ -144,7 +164,9 @@ std::string ShowSaveFileDialog(const std::string& suggestedName, const std::stri
     ofn.lStructSize = sizeof(ofn);
     ofn.lpstrFile = fileBuffer.data();
     ofn.nMaxFile = static_cast<DWORD>(fileBuffer.size());
-    ofn.lpstrFilter = L"Pliki C++\0*.cpp\0Pliki naglowkowe\0*.h;*.hpp\0Wszystkie pliki\0*.*\0";
+    ofn.lpstrFilter = english
+        ? L"C++ files\0*.cpp\0Header files\0*.h;*.hpp\0All files\0*.*\0"
+        : L"Pliki C++\0*.cpp\0Pliki naglowkowe\0*.h;*.hpp\0Wszystkie pliki\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = initialDirW.empty() ? nullptr : initialDirW.c_str();
     ofn.lpstrDefExt = L"cpp";
@@ -157,6 +179,7 @@ std::string ShowSaveFileDialog(const std::string& suggestedName, const std::stri
 #else
     (void)suggestedName;
     (void)initialDir;
+    (void)locale;
     return std::string();
 #endif
 }

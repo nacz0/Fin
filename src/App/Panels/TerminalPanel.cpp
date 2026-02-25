@@ -45,7 +45,7 @@ void RenderTerminalPanel(
     Terminal& terminal,
     std::string& terminalHistory,
     std::string& terminalInput) {
-    if (!fst::BeginDockableWindow(ctx, "Terminal")) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.terminal"))) {
         return;
     }
 

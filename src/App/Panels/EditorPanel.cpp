@@ -20,7 +20,7 @@ void RenderEditorPanel(
     const ClampActiveTabFn& clampActiveTab,
     const CloseTabFn& closeTab,
     const CloseCompletionPopupFn& closeCompletionPopup) {
-    if (!fst::BeginDockableWindow(ctx, "Edytor")) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.editor"))) {
         return;
     }
 

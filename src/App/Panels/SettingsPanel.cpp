@@ -1,6 +1,7 @@
 #include "App/Panels/SettingsPanel.h"
 
 #include "App/FinHelpers.h"
+#include "App/FinI18n.h"
 #include "fastener/fastener.h"
 
 #include <algorithm>
@@ -23,14 +24,14 @@ void RenderSettingsPanel(
 
     fst::DockableWindowOptions settingsOptions;
     settingsOptions.open = &showSettingsWindow;
-    if (!fst::BeginDockableWindow(ctx, "Ustawienia", settingsOptions)) {
+    if (!fst::BeginDockableWindow(ctx, fst::i18n("window.settings"), settingsOptions)) {
         return;
     }
 
     const fst::Rect bounds = ctx.layout().currentBounds();
     beginScrollablePanelContent(ctx, "settings_scroll", bounds);
 
-    if (fst::Checkbox(ctx, "Autouzupelnianie (LSP)", config.autocompleteEnabled)) {
+    if (fst::Checkbox(ctx, fst::i18n("settings.autocomplete_lsp"), config.autocompleteEnabled)) {
         if (config.autocompleteEnabled) {
             if (!startLsp()) {
                 config.autocompleteEnabled = false;
@@ -39,21 +40,38 @@ void RenderSettingsPanel(
             stopLsp();
         }
     }
-    (void)fst::Checkbox(ctx, "Budowanie przez clang++", config.clangBuildEnabled);
-    (void)fst::Checkbox(ctx, "Auto-domykanie nawiasow", config.autoClosingBrackets);
-    (void)fst::Checkbox(ctx, "Smart indent", config.smartIndentEnabled);
+    (void)fst::Checkbox(ctx, fst::i18n("settings.build_clang"), config.clangBuildEnabled);
+    (void)fst::Checkbox(ctx, fst::i18n("settings.auto_brackets"), config.autoClosingBrackets);
+    (void)fst::Checkbox(ctx, fst::i18n("settings.smart_indent"), config.smartIndentEnabled);
 
-    std::vector<std::string> themeNames = {"Ciemny", "Jasny", "Retro"};
+    std::vector<std::string> themeNames = {
+        fst::i18n("theme.dark"),
+        fst::i18n("theme.light"),
+        fst::i18n("theme.retro"),
+    };
     int selectedTheme = std::clamp(config.theme, 0, 2);
-    if (fst::ComboBox(ctx, "Motyw", selectedTheme, themeNames)) {
+    if (fst::ComboBox(ctx, fst::i18n("settings.theme"), selectedTheme, themeNames)) {
         config.theme = selectedTheme;
         applyTheme(config.theme);
+    }
+
+    std::vector<std::string> localeNames = {
+        fst::i18n("locale.polish"),
+        fst::i18n("locale.english"),
+    };
+    std::vector<std::string> localeCodes = {"pl", "en"};
+    config.language = NormalizeLocale(config.language);
+    int selectedLocale = config.language == "en" ? 1 : 0;
+    if (fst::ComboBox(ctx, fst::i18n("settings.language"), selectedLocale, localeNames)) {
+        selectedLocale = std::clamp(selectedLocale, 0, static_cast<int>(localeCodes.size()) - 1);
+        config.language = localeCodes[static_cast<size_t>(selectedLocale)];
+        SetLocale(config.language);
     }
 
     fst::InputNumberOptions zoomOptions;
     zoomOptions.step = 0.1f;
     zoomOptions.decimals = 1;
-    if (fst::InputNumber(ctx, "Zoom", textScale, 0.5f, 3.0f, zoomOptions)) {
+    if (fst::InputNumber(ctx, fst::i18n("settings.zoom"), textScale, 0.5f, 3.0f, zoomOptions)) {
         textScale = std::clamp(textScale, 0.5f, 3.0f);
         config.zoom = textScale;
     }

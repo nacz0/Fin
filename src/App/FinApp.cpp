@@ -6,6 +6,7 @@
 
 #include "App/FinApp.h"
 #include "App/FinHelpers.h"
+#include "App/FinI18n.h"
 #include "App/FinTypes.h"
 #include "App/Panels/ConsolePanel.h"
 #include "App/Panels/EditorPanel.h"
@@ -43,6 +44,8 @@ using namespace fin;
 
 int RunFinApp() {
     AppConfig config = LoadConfig();
+    config.language = NormalizeLocale(config.language);
+    InitializeI18n(config.language);
 
     fst::WindowConfig windowConfig;
     windowConfig.title = "Fin - Fast IDE (Fastener)";
@@ -90,8 +93,8 @@ int RunFinApp() {
 
     std::string terminalInput;
     std::string terminalHistory;
-    std::string statusText = "Gotowy";
-    std::string compilationOutput = "Gotowy.";
+    std::string statusText = fst::i18n("status.ready");
+    std::string compilationOutput = fst::i18n("status.compilation_ready");
 
     std::vector<ParsedError> errorList;
     std::future<std::string> compilationTask;
@@ -229,7 +232,7 @@ int RunFinApp() {
         }
 
         if (!lsp.Start()) {
-            statusText = "Nie mozna uruchomic clangd (LSP).";
+            statusText = fst::i18n("status.lsp_start_failed");
             return false;
         }
 
@@ -249,7 +252,7 @@ int RunFinApp() {
             sendDidOpenIfPossible(*tab);
         }
 
-        statusText = "LSP uruchomiony.";
+        statusText = fst::i18n("status.lsp_started");
         return true;
     };
 
@@ -308,19 +311,19 @@ int RunFinApp() {
 
     auto openDocument = [&](const std::string& path) -> bool {
         if (path.empty()) {
-            statusText = "Podaj sciezke pliku.";
+            statusText = fst::i18n("status.enter_file_path");
             return false;
         }
 
         const std::string normalizedPath = normalizePath(path);
         std::error_code ec;
         if (!fs::exists(normalizedPath, ec) || ec) {
-            statusText = "Plik nie istnieje: " + normalizedPath;
+            statusText = fst::i18n("status.file_not_found", {normalizedPath});
             return false;
         }
 
         if (!fs::is_regular_file(normalizedPath, ec) || ec) {
-            statusText = "To nie jest plik: " + normalizedPath;
+            statusText = fst::i18n("status.not_a_file", {normalizedPath});
             return false;
         }
 
@@ -334,7 +337,7 @@ int RunFinApp() {
             ".exe", ".dll", ".lib", ".a", ".obj", ".o", ".so", ".dylib", ".pdb", ".ilk", ".class"};
         const std::string ext = toLowerAscii(fs::path(normalizedPath).extension().string());
         if (kBlockedBinaryExtensions.count(ext) > 0) {
-            statusText = "Tego typu pliku nie mozna otworzyc w edytorze: " + normalizedPath;
+            statusText = fst::i18n("status.unsupported_file_type", {normalizedPath});
             return false;
         }
 
@@ -350,7 +353,7 @@ int RunFinApp() {
 
         const std::string text = OpenFile(normalizedPath);
         createTab(fs::path(normalizedPath).filename().string(), normalizedPath, text);
-        statusText = "Otworzono: " + normalizedPath;
+        statusText = fst::i18n("status.opened", {normalizedPath});
         if (completionVisible) {
             closeCompletionPopup();
         }
@@ -359,7 +362,7 @@ int RunFinApp() {
 
     auto saveTabToPath = [&](DocumentTab& tab, const std::string& targetPath) -> bool {
         if (targetPath.empty()) {
-            statusText = "Nieprawidlowa sciezka pliku.";
+            statusText = fst::i18n("status.invalid_file_path");
             return false;
         }
 
@@ -390,20 +393,20 @@ int RunFinApp() {
         }
 
         currentPath = fs::path(normalizedPath).parent_path();
-        statusText = "Zapisano: " + tab.path;
+        statusText = fst::i18n("status.saved", {tab.path});
         return true;
     };
 
     auto saveActiveTab = [&]() {
         clampActiveTab();
         if (activeTab < 0) {
-            statusText = "Brak aktywnej karty.";
+            statusText = fst::i18n("status.no_active_tab");
             return;
         }
 
         DocumentTab& tab = *docs[activeTab];
         if (tab.path.empty()) {
-            const std::string chosenPath = ShowSaveFileDialog(tab.name, currentPath.string());
+            const std::string chosenPath = ShowSaveFileDialog(tab.name, currentPath.string(), config.language);
             if (chosenPath.empty()) {
                 return;
             }
@@ -422,7 +425,7 @@ int RunFinApp() {
 
         DocumentTab& tab = *docs[activeTab];
         if (tab.path.empty()) {
-            statusText = "Najpierw zapisz plik.";
+            statusText = fst::i18n("status.save_first");
             return;
         }
 
@@ -441,18 +444,18 @@ int RunFinApp() {
             fallbackUsed = true;
         }
         if (compilerPath.empty()) {
-            statusText = "Brak kompilatora clang++ i g++ w PATH.";
+            statusText = fst::i18n("status.no_compiler");
             return;
         }
 
         const std::string compilerLabel = fs::path(compilerPath).filename().string();
 
         isCompiling = true;
-        compilationOutput = "Kompilacja (" + compilerLabel + ")...";
+        compilationOutput = fst::i18n("status.compiling", {compilerLabel});
         errorList.clear();
         statusText = fallbackUsed
-            ? ("Kompilacja fallback przez " + compilerLabel + ".")
-            : ("Kompilacja przez " + compilerLabel + ".");
+            ? fst::i18n("status.compiling_fallback", {compilerLabel})
+            : fst::i18n("status.compiling_using", {compilerLabel});
 
         const std::string sourcePath = tab.path;
         compilationTask = std::async(std::launch::async, [sourcePath, compilerPath]() {
@@ -609,7 +612,7 @@ int RunFinApp() {
         clampActiveTab();
         if (activeTab < 0) {
             if (manualRequest) {
-                statusText = "Brak aktywnej karty.";
+                statusText = fst::i18n("status.no_active_tab");
             }
             return;
         }
@@ -631,7 +634,7 @@ int RunFinApp() {
         if (!canUseLsp || lspDocumentPath.empty()) {
             if (localFallback.empty()) {
                 if (manualRequest) {
-                    statusText = "Brak podpowiedzi.";
+                    statusText = fst::i18n("status.no_suggestions");
                 }
                 return;
             }
@@ -764,59 +767,118 @@ int RunFinApp() {
     bool pendingMenuBuild = false;
     bool pendingMenuAutocomplete = false;
     bool pendingThemeChange = false;
-    std::string pendingDockTabFocusId;
-    auto requestDockTab = [&](const std::string& tabTitle, bool* visibilityFlag = nullptr) {
+    int pendingDockTabFocus = -1;
+
+    enum class DockWindowId {
+        Explorer = 0,
+        Editor = 1,
+        Console = 2,
+        LspDiagnostics = 3,
+        Terminal = 4,
+        Settings = 5,
+        Personalization = 6,
+    };
+
+    struct ManagedDockWindow {
+        DockWindowId id;
+        bool* visible;
+        DockWindowId fallbackAnchorId;
+        fst::DockDirection fallbackDirection;
+    };
+
+    const auto dockWindowTitle = [&](DockWindowId id) -> std::string {
+        switch (id) {
+            case DockWindowId::Explorer:
+                return fst::i18n("window.explorer");
+            case DockWindowId::Editor:
+                return fst::i18n("window.editor");
+            case DockWindowId::Console:
+                return fst::i18n("window.console");
+            case DockWindowId::LspDiagnostics:
+                return fst::i18n("window.lsp_diagnostics");
+            case DockWindowId::Terminal:
+                return fst::i18n("window.terminal");
+            case DockWindowId::Settings:
+                return fst::i18n("window.settings");
+            case DockWindowId::Personalization:
+                return fst::i18n("window.personalization");
+        }
+        return std::string();
+    };
+
+    const std::array<ManagedDockWindow, 7> managedDockWindows = {{
+        {DockWindowId::Explorer, &showExplorerTab, DockWindowId::Editor, fst::DockDirection::Left},
+        {DockWindowId::Editor, &showEditorTab, DockWindowId::Explorer, fst::DockDirection::Right},
+        {DockWindowId::Console, &showConsoleTab, DockWindowId::Editor, fst::DockDirection::Bottom},
+        {DockWindowId::LspDiagnostics, &showLspDiagnosticsTab, DockWindowId::Editor, fst::DockDirection::Bottom},
+        {DockWindowId::Terminal, &showTerminalTab, DockWindowId::Editor, fst::DockDirection::Bottom},
+        {DockWindowId::Settings, &showSettingsWindow, DockWindowId::Editor, fst::DockDirection::Center},
+        {DockWindowId::Personalization, &showPersonalizationTab, DockWindowId::Settings, fst::DockDirection::Center},
+    }};
+
+    std::unordered_map<int, fst::DockNode::Id> lastDockNodeByWindow;
+
+    const auto dockWindowKey = [](DockWindowId id) {
+        return static_cast<int>(id);
+    };
+
+    auto requestDockTab = [&](DockWindowId windowId, bool* visibilityFlag = nullptr) {
         if (visibilityFlag) {
             *visibilityFlag = true;
         }
-        pendingDockTabFocusId = tabTitle;
+        pendingDockTabFocus = dockWindowKey(windowId);
     };
 
-    menuBar.clear();
+    const auto buildMenuBar = [&]() {
+        menuBar.clear();
 
-    std::vector<fst::MenuItem> fileItems;
-    fileItems.emplace_back("new", "Nowy", [&]() { pendingMenuNew = true; }).withShortcut("Ctrl+N");
-    fileItems.emplace_back("open", "Otworz...", [&]() { pendingMenuOpen = true; }).withShortcut("Ctrl+O");
-    fileItems.emplace_back("save", "Zapisz", [&]() { pendingMenuSave = true; }).withShortcut("Ctrl+S");
-    fileItems.emplace_back("close", "Zamknij karte", [&]() { pendingMenuCloseTab = true; }).withShortcut("Ctrl+W");
-    fileItems.push_back(fst::MenuItem::separator());
-    fileItems.emplace_back("exit", "Zakoncz", [&]() { window.close(); });
-    menuBar.addMenu("Plik", fileItems);
+        std::vector<fst::MenuItem> fileItems;
+        fileItems.emplace_back("new", fst::i18n("menu.file.new"), [&]() { pendingMenuNew = true; }).withShortcut("Ctrl+N");
+        fileItems.emplace_back("open", fst::i18n("menu.file.open"), [&]() { pendingMenuOpen = true; }).withShortcut("Ctrl+O");
+        fileItems.emplace_back("save", fst::i18n("menu.file.save"), [&]() { pendingMenuSave = true; }).withShortcut("Ctrl+S");
+        fileItems.emplace_back("close", fst::i18n("menu.file.close_tab"), [&]() { pendingMenuCloseTab = true; }).withShortcut("Ctrl+W");
+        fileItems.push_back(fst::MenuItem::separator());
+        fileItems.emplace_back("exit", fst::i18n("menu.file.exit"), [&]() { window.close(); });
+        menuBar.addMenu(fst::i18n("menu.file"), fileItems);
 
-    std::vector<fst::MenuItem> editItems;
-    editItems.emplace_back("autocomplete", "Autouzupelnianie", [&]() { pendingMenuAutocomplete = true; }).withShortcut("Ctrl+Space");
-    menuBar.addMenu("Edycja", editItems);
+        std::vector<fst::MenuItem> editItems;
+        editItems.emplace_back("autocomplete", fst::i18n("menu.edit.autocomplete"), [&]() { pendingMenuAutocomplete = true; }).withShortcut("Ctrl+Space");
+        menuBar.addMenu(fst::i18n("menu.edit"), editItems);
 
-    std::vector<fst::MenuItem> buildItems;
-    buildItems.emplace_back("build_run", "Kompiluj i uruchom", [&]() { pendingMenuBuild = true; }).withShortcut("F5");
-    menuBar.addMenu("Buduj", buildItems);
+        std::vector<fst::MenuItem> buildItems;
+        buildItems.emplace_back("build_run", fst::i18n("menu.build.run"), [&]() { pendingMenuBuild = true; }).withShortcut("F5");
+        menuBar.addMenu(fst::i18n("menu.build"), buildItems);
 
-    std::vector<fst::MenuItem> viewItems;
-    viewItems.emplace_back("view_explorer", "Eksplorator", [&]() { requestDockTab("Eksplorator", &showExplorerTab); });
-    viewItems.emplace_back("view_editor", "Edytor", [&]() { requestDockTab("Edytor", &showEditorTab); });
-    viewItems.emplace_back("view_console", "Konsola", [&]() { requestDockTab("Konsola", &showConsoleTab); });
-    viewItems.emplace_back("view_lsp_diagnostics", "Diagnostyka LSP", [&]() { requestDockTab("Diagnostyka LSP", &showLspDiagnosticsTab); });
-    viewItems.emplace_back("view_terminal", "Terminal", [&]() { requestDockTab("Terminal", &showTerminalTab); });
-    viewItems.emplace_back("view_settings", "Ustawienia", [&]() { requestDockTab("Ustawienia", &showSettingsWindow); });
-    viewItems.emplace_back("view_personalization", "Personalizacja", [&]() { requestDockTab("Personalizacja", &showPersonalizationTab); });
-    viewItems.push_back(fst::MenuItem::separator());
-    viewItems.emplace_back("theme_dark", "Motyw: Ciemny", [&]() { config.theme = 0; pendingThemeChange = true; });
-    viewItems.emplace_back("theme_light", "Motyw: Jasny", [&]() { config.theme = 1; pendingThemeChange = true; });
-    viewItems.emplace_back("theme_retro", "Motyw: Retro", [&]() { config.theme = 2; pendingThemeChange = true; });
-    menuBar.addMenu("Widok", viewItems);
+        std::vector<fst::MenuItem> viewItems;
+        viewItems.emplace_back("view_explorer", fst::i18n("menu.view.explorer"), [&]() { requestDockTab(DockWindowId::Explorer, &showExplorerTab); });
+        viewItems.emplace_back("view_editor", fst::i18n("menu.view.editor"), [&]() { requestDockTab(DockWindowId::Editor, &showEditorTab); });
+        viewItems.emplace_back("view_console", fst::i18n("menu.view.console"), [&]() { requestDockTab(DockWindowId::Console, &showConsoleTab); });
+        viewItems.emplace_back("view_lsp_diagnostics", fst::i18n("menu.view.lsp_diagnostics"), [&]() { requestDockTab(DockWindowId::LspDiagnostics, &showLspDiagnosticsTab); });
+        viewItems.emplace_back("view_terminal", fst::i18n("menu.view.terminal"), [&]() { requestDockTab(DockWindowId::Terminal, &showTerminalTab); });
+        viewItems.emplace_back("view_settings", fst::i18n("menu.view.settings"), [&]() { requestDockTab(DockWindowId::Settings, &showSettingsWindow); });
+        viewItems.emplace_back("view_personalization", fst::i18n("menu.view.personalization"), [&]() { requestDockTab(DockWindowId::Personalization, &showPersonalizationTab); });
+        viewItems.push_back(fst::MenuItem::separator());
+        viewItems.emplace_back("theme_dark", fst::i18n("menu.view.theme_dark"), [&]() { config.theme = 0; pendingThemeChange = true; });
+        viewItems.emplace_back("theme_light", fst::i18n("menu.view.theme_light"), [&]() { config.theme = 1; pendingThemeChange = true; });
+        viewItems.emplace_back("theme_retro", fst::i18n("menu.view.theme_retro"), [&]() { config.theme = 2; pendingThemeChange = true; });
+        menuBar.addMenu(fst::i18n("menu.view"), viewItems);
+    };
 
-    const auto focusDockTab = [&](const std::string& windowTitle) {
+    buildMenuBar();
+
+    const auto focusDockTab = [&](DockWindowId dockWindowId) {
+        const std::string windowTitle = dockWindowTitle(dockWindowId);
         if (windowTitle.empty()) {
             return;
         }
 
-        const fst::WidgetId windowId = ctx.makeId(windowTitle);
-        fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
+        const fst::WidgetId widgetId = ctx.makeId(windowTitle);
+        fst::DockNode* node = ctx.docking().getWindowDockNode(widgetId);
         if (!node) {
             return;
         }
 
-        const auto it = std::find(node->dockedWindows.begin(), node->dockedWindows.end(), windowId);
+        const auto it = std::find(node->dockedWindows.begin(), node->dockedWindows.end(), widgetId);
         if (it == node->dockedWindows.end()) {
             return;
         }
@@ -824,29 +886,12 @@ int RunFinApp() {
         node->selectedTabIndex = static_cast<int>(std::distance(node->dockedWindows.begin(), it));
     };
 
-    struct ManagedDockWindow {
-        const char* title;
-        bool* visible;
-        const char* fallbackAnchorTitle;
-        fst::DockDirection fallbackDirection;
-    };
-    const std::array<ManagedDockWindow, 7> managedDockWindows = {{
-        {"Eksplorator", &showExplorerTab, "Edytor", fst::DockDirection::Left},
-        {"Edytor", &showEditorTab, "Eksplorator", fst::DockDirection::Right},
-        {"Konsola", &showConsoleTab, "Edytor", fst::DockDirection::Bottom},
-        {"Diagnostyka LSP", &showLspDiagnosticsTab, "Edytor", fst::DockDirection::Bottom},
-        {"Terminal", &showTerminalTab, "Edytor", fst::DockDirection::Bottom},
-        {"Ustawienia", &showSettingsWindow, "Edytor", fst::DockDirection::Center},
-        {"Personalizacja", &showPersonalizationTab, "Ustawienia", fst::DockDirection::Center}
-    }};
-    std::unordered_map<std::string, fst::DockNode::Id> lastDockNodeByTitle;
-
-    const auto findManagedDockWindow = [&](const std::string& title) -> const ManagedDockWindow* {
+    const auto findManagedDockWindow = [&](DockWindowId id) -> const ManagedDockWindow* {
         const auto it = std::find_if(
             managedDockWindows.begin(),
             managedDockWindows.end(),
             [&](const ManagedDockWindow& windowInfo) {
-                return title == windowInfo.title;
+                return id == windowInfo.id;
             });
         if (it == managedDockWindows.end()) {
             return nullptr;
@@ -856,28 +901,30 @@ int RunFinApp() {
 
     const auto rememberCurrentDockNodes = [&]() {
         for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-            const fst::WidgetId windowId = ctx.makeId(windowInfo.title);
+            const std::string windowTitle = dockWindowTitle(windowInfo.id);
+            const fst::WidgetId windowId = ctx.makeId(windowTitle);
             fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
             if (node && node->hasWindow(windowId)) {
-                lastDockNodeByTitle[windowInfo.title] = node->id;
+                lastDockNodeByWindow[dockWindowKey(windowInfo.id)] = node->id;
             }
         }
     };
 
-    const auto setDockWindowVisibility = [&](const std::string& windowTitle, bool visible) {
-        const ManagedDockWindow* windowInfo = findManagedDockWindow(windowTitle);
+    const auto setDockWindowVisibility = [&](DockWindowId windowKind, bool visible) {
+        const ManagedDockWindow* windowInfo = findManagedDockWindow(windowKind);
         if (!windowInfo) {
             return;
         }
 
         if (visible == *windowInfo->visible) {
             if (visible) {
-                pendingDockTabFocusId = windowTitle;
+                pendingDockTabFocus = dockWindowKey(windowKind);
             }
             return;
         }
 
-        const fst::WidgetId windowId = ctx.makeId(windowInfo->title);
+        const std::string windowTitle = dockWindowTitle(windowInfo->id);
+        const fst::WidgetId windowId = ctx.makeId(windowTitle);
         fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
         if (!visible && node && node->hasWindow(windowId) && node->dockedWindows.size() <= 1) {
             return;
@@ -885,7 +932,7 @@ int RunFinApp() {
 
         *windowInfo->visible = visible;
         if (visible) {
-            pendingDockTabFocusId = windowTitle;
+            pendingDockTabFocus = dockWindowKey(windowKind);
         }
     };
 
@@ -897,7 +944,8 @@ int RunFinApp() {
                 continue;
             }
 
-            const fst::WidgetId windowId = ctx.makeId(windowInfo.title);
+            const std::string windowTitle = dockWindowTitle(windowInfo.id);
+            const fst::WidgetId windowId = ctx.makeId(windowTitle);
             fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
             if (node && node->hasWindow(windowId)) {
                 if (node->dockedWindows.size() <= 1) {
@@ -913,15 +961,16 @@ int RunFinApp() {
                 continue;
             }
 
-            const fst::WidgetId windowId = ctx.makeId(windowInfo.title);
+            const std::string windowTitle = dockWindowTitle(windowInfo.id);
+            const fst::WidgetId windowId = ctx.makeId(windowTitle);
             fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
             if (node && node->hasWindow(windowId)) {
                 continue;
             }
 
             fst::DockNode* targetNode = nullptr;
-            const auto remembered = lastDockNodeByTitle.find(windowInfo.title);
-            if (remembered != lastDockNodeByTitle.end()) {
+            const auto remembered = lastDockNodeByWindow.find(dockWindowKey(windowInfo.id));
+            if (remembered != lastDockNodeByWindow.end()) {
                 targetNode = ctx.docking().getDockNode(remembered->second);
             }
 
@@ -930,7 +979,8 @@ int RunFinApp() {
                 continue;
             }
 
-            const fst::WidgetId anchorId = ctx.makeId(windowInfo.fallbackAnchorTitle);
+            const std::string anchorTitle = dockWindowTitle(windowInfo.fallbackAnchorId);
+            const fst::WidgetId anchorId = ctx.makeId(anchorTitle);
             if (fst::DockNode* anchorNode = ctx.docking().getWindowDockNode(anchorId)) {
                 ctx.docking().dockWindow(windowId, anchorNode->id, windowInfo.fallbackDirection);
                 continue;
@@ -946,7 +996,7 @@ int RunFinApp() {
         openDocument(filePath);
     }
     if (docs.empty()) {
-        createTab("Nowy.cpp", "", "");
+        createTab(fst::i18n("tab.new_cpp"), "", "");
     }
     if (config.activeTabIndex >= 0 && config.activeTabIndex < static_cast<int>(docs.size())) {
         activeTab = config.activeTabIndex;
@@ -957,6 +1007,8 @@ int RunFinApp() {
         config.autocompleteEnabled = false;
     }
 
+    std::string previousLocale = GetLocale();
+
     while (window.isOpen()) {
         window.pollEvents();
 
@@ -965,7 +1017,7 @@ int RunFinApp() {
             compilationOutput = compilationTask.get();
             errorList = ParseCompilerOutput(compilationOutput);
             isCompiling = false;
-            statusText = "Kompilacja zakonczona.";
+            statusText = fst::i18n("status.compilation_finished");
         }
 
         std::string terminalChunk = terminal.GetOutput();
@@ -1039,6 +1091,7 @@ int RunFinApp() {
         constexpr float statusBarHeight = 24.0f;
         const float windowW = static_cast<float>(window.width());
         const float windowH = static_cast<float>(window.height());
+        buildMenuBar();
         menuBar.render(ctx, fst::Rect(0.0f, 0.0f, windowW, menuBarHeight));
 
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::N)) actionNew = true;
@@ -1056,11 +1109,11 @@ int RunFinApp() {
         }
 
         if (actionNew) {
-            createTab("Nowy.cpp", "", "");
+            createTab(fst::i18n("tab.new_cpp"), "", "");
             closeCompletionPopup();
         }
         if (actionOpen) {
-            const std::string chosenPath = ShowOpenFileDialog(currentPath.string());
+            const std::string chosenPath = ShowOpenFileDialog(currentPath.string(), config.language);
             if (!chosenPath.empty() && openDocument(chosenPath)) {
                 currentPath = fs::path(normalizePath(chosenPath)).parent_path();
             }
@@ -1089,13 +1142,13 @@ int RunFinApp() {
             fst::DockNode::Id bottomNode = fst::DockBuilder::SplitNode(ctx, rightNode, fst::DockDirection::Bottom, 0.28f);
             fst::DockNode::Id centerNode = fst::DockBuilder::GetNode(ctx, rightNode, fst::DockDirection::Top);
 
-            fst::DockBuilder::DockWindow(ctx, "Eksplorator", leftNode);
-            fst::DockBuilder::DockWindow(ctx, "Edytor", centerNode);
-            fst::DockBuilder::DockWindow(ctx, "Konsola", bottomNode);
-            fst::DockBuilder::DockWindow(ctx, "Diagnostyka LSP", bottomNode);
-            fst::DockBuilder::DockWindow(ctx, "Terminal", bottomNode);
-            fst::DockBuilder::DockWindow(ctx, "Ustawienia", centerNode);
-            fst::DockBuilder::DockWindow(ctx, "Personalizacja", centerNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Explorer), leftNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Editor), centerNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Console), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::LspDiagnostics), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Terminal), bottomNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Settings), centerNode);
+            fst::DockBuilder::DockWindow(ctx, dockWindowTitle(DockWindowId::Personalization), centerNode);
 
             fst::DockBuilder::Finish();
             layoutInitialized = true;
@@ -1111,7 +1164,8 @@ int RunFinApp() {
             !fst::IsMouseOverAnyMenu(ctx)) {
             std::vector<fst::DockNode*> candidateNodes;
             for (const ManagedDockWindow& windowInfo : managedDockWindows) {
-                const fst::WidgetId windowId = ctx.makeId(windowInfo.title);
+                const std::string windowTitle = dockWindowTitle(windowInfo.id);
+                const fst::WidgetId windowId = ctx.makeId(windowTitle);
                 fst::DockNode* node = ctx.docking().getWindowDockNode(windowId);
                 if (!node || !node->hasWindow(windowId)) {
                     continue;
@@ -1149,20 +1203,21 @@ int RunFinApp() {
                 std::vector<fst::MenuItem> tabMenuItems;
                 for (size_t i = 0; i < managedDockWindows.size(); ++i) {
                     const ManagedDockWindow& windowInfo = managedDockWindows[i];
-                    const fst::WidgetId windowId = ctx.makeId(windowInfo.title);
+                    const std::string windowTitle = dockWindowTitle(windowInfo.id);
+                    const fst::WidgetId windowId = ctx.makeId(windowTitle);
                     const bool belongsToNode = clickedNode->hasWindow(windowId);
-                    const auto remembered = lastDockNodeByTitle.find(windowInfo.title);
-                    const bool rememberedInNode = remembered != lastDockNodeByTitle.end() && remembered->second == clickedNode->id;
+                    const auto remembered = lastDockNodeByWindow.find(dockWindowKey(windowInfo.id));
+                    const bool rememberedInNode = remembered != lastDockNodeByWindow.end() && remembered->second == clickedNode->id;
                     if (!belongsToNode && !rememberedInNode) {
                         continue;
                     }
 
                     fst::MenuItem item = fst::MenuItem::checkbox(
                         "toggle_dock_tab_" + std::to_string(i),
-                        windowInfo.title,
+                        windowTitle,
                         *windowInfo.visible,
-                        [&, title = std::string(windowInfo.title), visibleFlag = windowInfo.visible]() {
-                            setDockWindowVisibility(title, !*visibleFlag);
+                        [&, id = windowInfo.id, visibleFlag = windowInfo.visible]() {
+                            setDockWindowVisibility(id, !*visibleFlag);
                         });
 
                     if (*windowInfo.visible && belongsToNode && clickedNode->dockedWindows.size() <= 1) {
@@ -1178,9 +1233,9 @@ int RunFinApp() {
             }
         }
 
-        if (!pendingDockTabFocusId.empty()) {
-            focusDockTab(pendingDockTabFocusId);
-            pendingDockTabFocusId.clear();
+        if (pendingDockTabFocus >= 0) {
+            focusDockTab(static_cast<DockWindowId>(pendingDockTabFocus));
+            pendingDockTabFocus = -1;
         }
 
         if (showExplorerTab) {
@@ -1443,16 +1498,16 @@ int RunFinApp() {
             completionOptions.allowFloating = true;
             completionOptions.draggable = false;
             completionOptions.showTitleBar = false;
-            if (fst::BeginDockableWindow(ctx, "Autouzupelnianie", completionOptions)) {
+            if (fst::BeginDockableWindow(ctx, fst::i18n("window.completion"), completionOptions)) {
                 const fst::Rect bounds = ctx.layout().currentBounds();
                 completionWindowBounds = bounds;
                 completionWindowDrawn = true;
                 ctx.layout().beginContainer(bounds);
 
                 if (completionLoading) {
-                    fst::Label(ctx, "Pobieranie podpowiedzi...");
+                    fst::Label(ctx, fst::i18n("completion.fetching"));
                 } else if (completionItems.empty()) {
-                    fst::Label(ctx, "Brak podpowiedzi.");
+                    fst::Label(ctx, fst::i18n("completion.none"));
                 } else {
                     completionSelected = std::clamp(completionSelected, 0, static_cast<int>(completionItems.size()) - 1);
                     const fst::Theme& theme = ctx.theme();
@@ -1607,13 +1662,13 @@ int RunFinApp() {
 
                         fst::LabelOptions sourceOptions;
                         sourceOptions.color = localItem ? ctx.theme().colors.textSecondary : ctx.theme().colors.primary;
-                        fst::Label(ctx, localItem ? "Zrodlo: lokalne" : "Zrodlo: LSP", sourceOptions);
+                        fst::Label(ctx, localItem ? fst::i18n("completion.source.local") : fst::i18n("completion.source.lsp"), sourceOptions);
                         if (!selectedItem.detail.empty() && !localItem) {
-                            fst::LabelSecondary(ctx, "Szczegoly: " + selectedItem.detail);
+                            fst::LabelSecondary(ctx, fst::i18n("completion.details", {selectedItem.detail}));
                         }
                     }
 
-                    fst::LabelSecondary(ctx, "Strzalki = wybor, Enter = wstaw, Esc = zamknij");
+                    fst::LabelSecondary(ctx, fst::i18n("completion.hint"));
                 }
 
                 ctx.layout().endContainer();
@@ -1638,6 +1693,15 @@ int RunFinApp() {
             startLsp,
             stopLsp,
             [&](int themeId) { applyPresetThemeAndRefresh(themeId); });
+
+        const std::string currentLocale = GetLocale();
+        config.language = currentLocale;
+        if (currentLocale != previousLocale) {
+            previousLocale = currentLocale;
+            layoutInitialized = false;
+            lastDockNodeByWindow.clear();
+            pendingDockTabFocus = -1;
+        }
 
         RenderPersonalizationPanel(
             ctx,
@@ -1665,10 +1729,10 @@ int RunFinApp() {
             if (activeTab >= 0 && activeTab < static_cast<int>(docs.size())) {
                 fst::TextPosition cur = docs[activeTab]->editor.cursor();
                 int diagCount = static_cast<int>(docs[activeTab]->lspDiagnostics.size());
-                std::string rightText = "Ln " + std::to_string(cur.line + 1) +
-                                        ", Col " + std::to_string(cur.column + 1) +
-                                        " | Diag " + std::to_string(diagCount) +
-                                        " | " + (docs[activeTab]->path.empty() ? "(nowy plik)" : docs[activeTab]->path);
+                std::string rightText = fst::i18n("statusbar.line") + " " + std::to_string(cur.line + 1) +
+                                        ", " + fst::i18n("statusbar.col") + " " + std::to_string(cur.column + 1) +
+                                        " | " + fst::i18n("statusbar.diag") + " " + std::to_string(diagCount) +
+                                        " | " + (docs[activeTab]->path.empty() ? fst::i18n("statusbar.new_file") : docs[activeTab]->path);
                 dl.addText(ctx.font(), fst::Vec2(320.0f, statusRect.y() + 4.0f), rightText, theme.colors.textSecondary);
             }
         }
