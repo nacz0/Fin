@@ -3,6 +3,7 @@
 #include "fastener/fastener.h"
 
 #include <algorithm>
+#include <unordered_set>
 
 namespace fin {
 
@@ -22,10 +23,22 @@ void RenderConsolePanel(
     ctx.layout().beginContainer(bounds);
     const fst::Theme& theme = ctx.theme();
 
+    std::vector<const ParsedError*> uniqueErrors;
+    uniqueErrors.reserve(errorList.size());
+    std::unordered_set<std::string> seenErrors;
+    for (const ParsedError& err : errorList) {
+        const std::string message = err.message.empty() ? err.fullMessage : err.message;
+        const std::string key = err.filename + "|" + std::to_string(err.line) + "|" + std::to_string(err.col) +
+                                "|" + (err.isError ? "E" : "W") + "|" + message;
+        if (seenErrors.insert(key).second) {
+            uniqueErrors.push_back(&err);
+        }
+    }
+
     int errorCount = 0;
     int warningCount = 0;
-    for (const ParsedError& err : errorList) {
-        if (err.isError) {
+    for (const ParsedError* err : uniqueErrors) {
+        if (err->isError) {
             ++errorCount;
         } else {
             ++warningCount;
@@ -46,14 +59,25 @@ void RenderConsolePanel(
     fst::EndHorizontal(ctx);
     fst::Separator(ctx);
 
-    if (!errorList.empty()) {
+    if (!uniqueErrors.empty()) {
         fst::Label(ctx, "Problemy kompilatora:");
-        for (const ParsedError& err : errorList) {
+        const int duplicateCount = static_cast<int>(errorList.size() - uniqueErrors.size());
+        if (duplicateCount > 0) {
+            fst::LabelSecondary(ctx, "Pominieto duplikaty: " + std::to_string(duplicateCount));
+        }
+        for (const ParsedError* errPtr : uniqueErrors) {
+            const ParsedError& err = *errPtr;
             const bool canJump = !err.filename.empty() && err.line > 0;
             const std::string location = canJump
                 ? (err.filename + ":" + std::to_string(err.line) + ":" + std::to_string(err.col))
                 : "(bez lokalizacji)";
-            const std::string message = err.message.empty() ? err.fullMessage : err.message;
+            std::string message = err.message.empty() ? err.fullMessage : err.message;
+            if (message.rfind("error: ", 0) == 0) {
+                message.erase(0, 7);
+            } else if (message.rfind("fatal error: ", 0) == 0) {
+                message.erase(0, 13);
+            }
+            const std::string clickableLine = location + "  " + message;
 
             fst::BeginHorizontal(ctx, 10.0f);
             {
@@ -62,32 +86,25 @@ void RenderConsolePanel(
                 levelOpt.style = fst::Style().withWidth(62.0f);
                 fst::Label(ctx, err.isError ? "ERROR" : "WARN", levelOpt);
 
-                fst::LabelOptions locationOpt;
-                locationOpt.color = theme.colors.textSecondary;
-                locationOpt.style = fst::Style().withWidth(std::max(180.0f, bounds.width() * 0.42f));
-                fst::Label(ctx, location, locationOpt);
-            }
-
-            fst::ButtonOptions jumpButton;
-            jumpButton.style = fst::Style().withWidth(80.0f);
-            jumpButton.disabled = !canJump;
-            const bool jumpClicked = fst::Button(ctx, "Przejdz", jumpButton);
-            fst::EndHorizontal(ctx);
-
-            fst::LabelOptions messageOpt;
-            messageOpt.color = err.isError ? theme.colors.text : theme.colors.textSecondary;
-            fst::Label(ctx, message, messageOpt);
-
-            if (jumpClicked && canJump) {
-                if (openDocument(err.filename)) {
-                    clampActiveTab();
-                    if (activeTab >= 0) {
-                        fst::TextPosition pos;
-                        pos.line = std::max(0, err.line - 1);
-                        pos.column = std::max(0, err.col - 1);
-                        docs[activeTab]->editor.setCursor(pos);
+                bool selected = false;
+                fst::SelectableOptions selectableOpt;
+                selectableOpt.disabled = !canJump;
+                if (fst::Selectable(ctx, clickableLine, selected, selectableOpt) && canJump) {
+                    if (openDocument(err.filename)) {
+                        clampActiveTab();
+                        if (activeTab >= 0) {
+                            fst::TextPosition pos;
+                            pos.line = std::max(0, err.line - 1);
+                            pos.column = std::max(0, err.col - 1);
+                            docs[activeTab]->editor.setCursor(pos);
+                        }
                     }
                 }
+            }
+            fst::EndHorizontal(ctx);
+
+            if (!canJump) {
+                fst::LabelSecondary(ctx, "Brak lokalizacji do przejscia.");
             }
             fst::Separator(ctx);
         }
@@ -101,7 +118,7 @@ void RenderConsolePanel(
     outputOptions.wordWrap = false;
     outputOptions.showLineNumbers = true;
     outputOptions.style = fst::Style().withWidth(std::max(100.0f, bounds.width() - 8.0f));
-    const float reservedTop = errorList.empty() ? 130.0f : 250.0f;
+    const float reservedTop = uniqueErrors.empty() ? 130.0f : 250.0f;
     outputOptions.height = std::max(140.0f, bounds.height() - reservedTop);
     fst::TextArea(ctx, "build_output", compilationOutput, outputOptions);
 
