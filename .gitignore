@@ -43,6 +43,7 @@ src/*.exe
 # App specific
 fin.ini
 build_output.txt
+/artifacts/
 
 # Log files
 *.log

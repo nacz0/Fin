@@ -65,3 +65,40 @@ Executable path (Visual Studio generator):
 - Fin is now maintained as a Fastener-only codebase.
 - App runtime code lives in `src/App` and reusable infrastructure in `src/Core`.
 - CMake source lists are centralized in `cmake/FinSources.cmake` for easier maintenance.
+
+## UI Smoke Testing (Windows)
+
+Fin includes a PowerShell UI smoke harness that can:
+- launch `Fin.exe`
+- click in the window
+- send keys (for example `F5`)
+- save screenshots
+
+Command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1
+```
+
+Useful options:
+
+```powershell
+# Use Release build
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1 `
+  -ExePath "build-fastener/Release/Fin.exe"
+
+# Keep the app open after test run
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1 -KeepOpen
+
+# Validate config without launching GUI
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1 -DryRun
+```
+
+Action scenario is defined in:
+- `scripts/ui/smoke_actions.json`
+
+Action format details:
+- `scripts/ui/README.md`
+
+Artifacts are written to:
+- `artifacts/ui/<timestamp>/`
