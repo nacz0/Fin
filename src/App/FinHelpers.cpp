@@ -447,6 +447,53 @@ static fst::Theme retroTheme() {
     return theme;
 }
 
+static fst::Theme classicIdeTheme() {
+    fst::Theme theme = fst::Theme::dark();
+    theme.colors.windowBackground = fst::Color::fromHex(0x06090d);
+    theme.colors.panelBackground = fst::Color::fromHex(0x0b1017);
+    theme.colors.popupBackground = fst::Color::fromHex(0x111823);
+    theme.colors.primary = fst::Color::fromHex(0x2f5f97);
+    theme.colors.primaryHover = fst::Color::fromHex(0x3b77bb);
+    theme.colors.primaryActive = fst::Color::fromHex(0x264c7a);
+    theme.colors.primaryText = fst::Color::fromHex(0xf1f6ff);
+    theme.colors.secondary = fst::Color::fromHex(0x1a2a3d);
+    theme.colors.secondaryHover = fst::Color::fromHex(0x243b57);
+    theme.colors.secondaryActive = fst::Color::fromHex(0x1b2f46);
+    theme.colors.text = fst::Color::fromHex(0xe6edf8);
+    theme.colors.textDisabled = fst::Color::fromHex(0x7f8794);
+    theme.colors.textSecondary = fst::Color::fromHex(0xa7b8cd);
+    theme.colors.border = fst::Color::fromHex(0x244c77);
+    theme.colors.borderHover = fst::Color::fromHex(0x2f6299);
+    theme.colors.borderFocused = fst::Color::fromHex(0x3a7fc3);
+    theme.colors.inputBackground = fst::Color::fromHex(0x080d13);
+    theme.colors.inputBorder = fst::Color::fromHex(0x1f436b);
+    theme.colors.inputFocused = fst::Color::fromHex(0x3f85cb);
+    theme.colors.buttonBackground = fst::Color::fromHex(0x15253a);
+    theme.colors.buttonHover = fst::Color::fromHex(0x1d3552);
+    theme.colors.buttonActive = fst::Color::fromHex(0x142b44);
+    theme.colors.buttonText = fst::Color::fromHex(0xe6edf8);
+    theme.colors.success = fst::Color::fromHex(0x52a27f);
+    theme.colors.warning = fst::Color::fromHex(0xe7c13b);
+    theme.colors.error = fst::Color::fromHex(0xcc6a6a);
+    theme.colors.info = fst::Color::fromHex(0x5ea0e3);
+    theme.colors.selection = fst::Color(52, 100, 157, 210);
+    theme.colors.selectionText = fst::Color::fromHex(0xf2f7ff);
+    theme.colors.scrollbarTrack = fst::Color::fromHex(0x101722);
+    theme.colors.scrollbarThumb = fst::Color::fromHex(0x2a4e76);
+    theme.colors.scrollbarThumbHover = fst::Color::fromHex(0x3a699d);
+    theme.colors.shadow = fst::Color(0, 0, 0, 160);
+    theme.colors.tooltipBackground = fst::Color::fromHex(0x111a27);
+    theme.colors.tooltipText = fst::Color::fromHex(0xe6edf8);
+    theme.colors.tooltipBorder = fst::Color::fromHex(0x3a6a9f);
+    theme.colors.dockPreviewOverlay = fst::Color(59, 119, 187, 88);
+    theme.colors.dockTabActive = fst::Color::fromHex(0x2f5f97);
+    theme.colors.dockTabInactive = fst::Color::fromHex(0x0b1017);
+    theme.colors.dockTabHover = fst::Color::fromHex(0x21466f);
+    theme.colors.dockSplitter = fst::Color::fromHex(0x1f436a);
+    theme.colors.dockSplitterHover = fst::Color::fromHex(0x2e6399);
+    return theme;
+}
+
 void applyTheme(fst::Context& ctx, int themeId) {
     if (themeId == 1) {
         ctx.setTheme(fst::Theme::light());
@@ -454,6 +501,10 @@ void applyTheme(fst::Context& ctx, int themeId) {
     }
     if (themeId == 2) {
         ctx.setTheme(retroTheme());
+        return;
+    }
+    if (themeId == 3) {
+        ctx.setTheme(classicIdeTheme());
         return;
     }
     ctx.setTheme(fst::Theme::dark());

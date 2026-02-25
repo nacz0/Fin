@@ -11,7 +11,7 @@ struct AppConfig {
 
     std::vector<std::string> openFiles;
     int activeTabIndex = -1;
-    int theme = 0; // 0: Dark, 1: Light, 2: RetroBlue
+    int theme = 0; // 0: Dark, 1: Light, 2: RetroBlue, 3: ClassicIDE
     
     bool autocompleteEnabled = true;
     bool clangBuildEnabled = true;

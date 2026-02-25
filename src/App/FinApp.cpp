@@ -125,7 +125,7 @@ int RunFinApp() {
     fst::TabControl tabControl;
 
     fst::Theme editableTheme = ctx.theme();
-    int selectedPersonalizationPreset = std::clamp(config.theme, 0, 2);
+    int selectedPersonalizationPreset = std::clamp(config.theme, 0, 3);
 
     auto clampActiveTab = [&]() {
         if (docs.empty()) {
@@ -592,7 +592,7 @@ int RunFinApp() {
     };
 
     const auto applyPresetThemeAndRefresh = [&](int themeId) {
-        config.theme = std::clamp(themeId, 0, 2);
+        config.theme = std::clamp(themeId, 0, 3);
         applyTheme(ctx, config.theme);
         editableTheme = ctx.theme();
         selectedPersonalizationPreset = config.theme;
@@ -655,6 +655,7 @@ int RunFinApp() {
         viewItems.emplace_back("theme_dark", fst::i18n("menu.view.theme_dark"), [&]() { config.theme = 0; pendingThemeChange = true; });
         viewItems.emplace_back("theme_light", fst::i18n("menu.view.theme_light"), [&]() { config.theme = 1; pendingThemeChange = true; });
         viewItems.emplace_back("theme_retro", fst::i18n("menu.view.theme_retro"), [&]() { config.theme = 2; pendingThemeChange = true; });
+        viewItems.emplace_back("theme_classic", fst::i18n("menu.view.theme_classic"), [&]() { config.theme = 3; pendingThemeChange = true; });
         menuBar.addMenu(fst::i18n("menu.view"), viewItems);
     };
 

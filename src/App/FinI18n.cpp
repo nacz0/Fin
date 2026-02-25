@@ -50,10 +50,12 @@ constexpr TranslationEntry kTranslations[] = {
     {"menu.view.theme_dark", "Motyw: Ciemny", "Theme: Dark"},
     {"menu.view.theme_light", "Motyw: Jasny", "Theme: Light"},
     {"menu.view.theme_retro", "Motyw: Retro", "Theme: Retro"},
+    {"menu.view.theme_classic", "Motyw: Klasyczny IDE", "Theme: Classic IDE"},
 
     {"theme.dark", "Ciemny", "Dark"},
     {"theme.light", "Jasny", "Light"},
     {"theme.retro", "Retro", "Retro"},
+    {"theme.classic", "Klasyczny IDE", "Classic IDE"},
 
     {"settings.autocomplete_lsp", "Autouzupelnianie (LSP)", "Autocomplete (LSP)"},
     {"settings.build_clang", "Budowanie przez clang++", "Build with clang++"},

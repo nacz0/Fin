@@ -496,15 +496,16 @@ void RenderPersonalizationPanel(
         fst::i18n("theme.dark"),
         fst::i18n("theme.light"),
         fst::i18n("theme.retro"),
+        fst::i18n("theme.classic"),
     };
-    selectedPreset = std::clamp(selectedPreset, 0, 2);
+    selectedPreset = std::clamp(selectedPreset, 0, 3);
     const int presetBefore = selectedPreset;
     (void)fst::ComboBox(ctx, fst::i18n("personalization.base_theme"), selectedPreset, presetNames);
-    selectedPreset = std::clamp(selectedPreset, 0, 2);
+    selectedPreset = std::clamp(selectedPreset, 0, 3);
 
     bool loadedPreset = false;
     auto loadPreset = [&](int preset) {
-        selectedPreset = std::clamp(preset, 0, 2);
+        selectedPreset = std::clamp(preset, 0, 3);
         applyPresetTheme(selectedPreset);
         editableTheme = ctx.theme();
         lastAppliedFingerprint = ThemeFingerprint(editableTheme);

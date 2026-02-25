@@ -48,8 +48,9 @@ void RenderSettingsPanel(
         fst::i18n("theme.dark"),
         fst::i18n("theme.light"),
         fst::i18n("theme.retro"),
+        fst::i18n("theme.classic"),
     };
-    int selectedTheme = std::clamp(config.theme, 0, 2);
+    int selectedTheme = std::clamp(config.theme, 0, 3);
     if (fst::ComboBox(ctx, fst::i18n("settings.theme"), selectedTheme, themeNames)) {
         config.theme = selectedTheme;
         applyTheme(config.theme);
