@@ -2,8 +2,39 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 using json = nlohmann::json;
+
+namespace {
+
+bool isUnreservedUriChar(unsigned char ch) {
+    return (std::isalnum(ch) != 0) || ch == '-' || ch == '.' || ch == '_' || ch == '~';
+}
+
+std::string encodeUriPath(const std::string& path) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+
+    std::string encoded;
+    encoded.reserve(path.size());
+    for (unsigned char ch : path) {
+        if (isUnreservedUriChar(ch) || ch == '/' || ch == ':') {
+            encoded.push_back(static_cast<char>(ch));
+            continue;
+        }
+        encoded.push_back('%');
+        encoded.push_back(kHex[(ch >> 4) & 0x0F]);
+        encoded.push_back(kHex[ch & 0x0F]);
+    }
+    return encoded;
+}
+
+std::string fileUriFromPath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    return "file:///" + encodeUriPath(path);
+}
+
+} // namespace
 
 LSPClient::LSPClient() {}
 
@@ -98,7 +129,7 @@ void LSPClient::Initialize(const std::string& rootPath) {
     json params = {
         {"processId", GetCurrentProcessId()},
         {"rootPath", path},
-        {"rootUri", "file:///" + path},
+        {"rootUri", fileUriFromPath(path)},
         {"capabilities", json::object()},
         {"initializationOptions", {
             {"fallbackFlags", json::array({"-std=c++20", "-xc++"})}
@@ -111,14 +142,15 @@ void LSPClient::Initialize(const std::string& rootPath) {
 void LSPClient::DidOpen(const std::string& uri, const std::string& text) {
     std::string path = uri;
     std::replace(path.begin(), path.end(), '\\', '/');
-    std::cout << "[LSP] DidOpen: file:///" << path << " (" << text.length() << " bytes)" << std::endl;
+    const std::string documentUri = fileUriFromPath(path);
+    std::cout << "[LSP] DidOpen: " << documentUri << " (" << text.length() << " bytes)" << std::endl;
     {
         std::lock_guard<std::mutex> lock(m_documentVersionsMutex);
         m_documentVersions[path] = 1;
     }
     json params = {
         {"textDocument", {
-            {"uri", "file:///" + path},
+            {"uri", documentUri},
             {"languageId", "cpp"},
             {"version", 1},
             {"text", text}
@@ -130,6 +162,7 @@ void LSPClient::DidOpen(const std::string& uri, const std::string& text) {
 void LSPClient::DidChange(const std::string& uri, const std::string& text) {
     std::string path = uri;
     std::replace(path.begin(), path.end(), '\\', '/');
+    const std::string documentUri = fileUriFromPath(path);
     int nextVersion = 2;
     {
         std::lock_guard<std::mutex> lock(m_documentVersionsMutex);
@@ -142,7 +175,7 @@ void LSPClient::DidChange(const std::string& uri, const std::string& text) {
     }
     json params = {
         {"textDocument", {
-            {"uri", "file:///" + path},
+            {"uri", documentUri},
             {"version", nextVersion}
         }},
         {"contentChanges", json::array({{{"text", text}}})}
@@ -154,9 +187,10 @@ void LSPClient::RequestCompletion(const std::string& uri, int line, int characte
     int id = m_nextId++;
     std::string path = uri;
     std::replace(path.begin(), path.end(), '\\', '/');
-    std::cout << "[LSP] RequestCompletion: file:///" << path << " at line=" << line << " char=" << character << std::endl;
+    const std::string documentUri = fileUriFromPath(path);
+    std::cout << "[LSP] RequestCompletion: " << documentUri << " at line=" << line << " char=" << character << std::endl;
     json params = {
-        {"textDocument", {{"uri", "file:///" + path}}},
+        {"textDocument", {{"uri", documentUri}}},
         {"position", {{"line", line}, {"character", character}}}
     };
 

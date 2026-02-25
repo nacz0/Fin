@@ -489,6 +489,42 @@ std::string normalizePath(const std::string& path) {
     return normalized;
 }
 
+namespace {
+
+int hexDigitValue(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return 10 + (ch - 'a');
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return 10 + (ch - 'A');
+    }
+    return -1;
+}
+
+std::string decodeUriEscapes(const std::string& value) {
+    std::string decoded;
+    decoded.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        const char ch = value[i];
+        if (ch == '%' && i + 2 < value.size()) {
+            const int hi = hexDigitValue(value[i + 1]);
+            const int lo = hexDigitValue(value[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                decoded.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+                continue;
+            }
+        }
+        decoded.push_back(ch);
+    }
+    return decoded;
+}
+
+} // namespace
+
 std::string uriToPath(const std::string& uri) {
     std::string path = uri;
     if (path.rfind("file:///", 0) == 0) {
@@ -496,6 +532,8 @@ std::string uriToPath(const std::string& uri) {
     } else if (path.rfind("file://", 0) == 0) {
         path = path.substr(7);
     }
+
+    path = decodeUriEscapes(path);
 
 #ifdef _WIN32
     if (path.size() > 2 && path[0] == '/' && path[2] == ':') {
