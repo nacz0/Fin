@@ -864,6 +864,7 @@ int RunFinApp() {
         menuBar.addMenu(fst::i18n("menu.view"), viewItems);
     };
 
+    bool menuNeedsRebuild = false;
     buildMenuBar();
 
     const auto focusDockTab = [&](DockWindowId dockWindowId) {
@@ -1091,7 +1092,10 @@ int RunFinApp() {
         constexpr float statusBarHeight = 24.0f;
         const float windowW = static_cast<float>(window.width());
         const float windowH = static_cast<float>(window.height());
-        buildMenuBar();
+        if (menuNeedsRebuild) {
+            buildMenuBar();
+            menuNeedsRebuild = false;
+        }
         menuBar.render(ctx, fst::Rect(0.0f, 0.0f, windowW, menuBarHeight));
 
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::N)) actionNew = true;
@@ -1698,6 +1702,7 @@ int RunFinApp() {
         config.language = currentLocale;
         if (currentLocale != previousLocale) {
             previousLocale = currentLocale;
+            menuNeedsRebuild = true;
             layoutInitialized = false;
             lastDockNodeByWindow.clear();
             pendingDockTabFocus = -1;
