@@ -27,6 +27,7 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <future>
 #include <map>
@@ -62,10 +63,6 @@ int RunFinApp() {
     fst::Context ctx;
     applyTheme(ctx, config.theme);
 
-    if (!ctx.loadFont("C:/Windows/Fonts/consola.ttf", 15.0f)) {
-        ctx.loadFont("C:/Windows/Fonts/arial.ttf", 15.0f);
-    }
-
     Terminal terminal;
     terminal.Start();
 
@@ -82,6 +79,16 @@ int RunFinApp() {
     int tabCounter = 1;
 
     float textScale = std::clamp(config.zoom, 0.5f, 3.0f);
+    constexpr float kBaseUiFontSize = 15.0f;
+    const auto loadUiFontForScale = [&](float scale) {
+        const float clampedScale = std::clamp(scale, 0.5f, 3.0f);
+        const float uiFontSize = kBaseUiFontSize * clampedScale;
+        if (!ctx.loadFont("C:/Windows/Fonts/consola.ttf", uiFontSize)) {
+            ctx.loadFont("C:/Windows/Fonts/arial.ttf", uiFontSize);
+        }
+    };
+    loadUiFontForScale(textScale);
+    float appliedTextScale = textScale;
     bool layoutInitialized = false;
     bool showSettingsWindow = config.showSettingsWindow;
     bool showExplorerTab = true;
@@ -1061,6 +1068,11 @@ int RunFinApp() {
                 completionRepeatTimer = 0.0f;
                 pendingCompletionReady = false;
             }
+        }
+
+        if (std::abs(textScale - appliedTextScale) > 0.001f) {
+            loadUiFontForScale(textScale);
+            appliedTextScale = textScale;
         }
 
         ctx.beginFrame(window);
