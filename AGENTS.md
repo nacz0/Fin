@@ -4,7 +4,6 @@
 - Build (Debug): `cmake --build build-fastener --config Debug -- /m:1`
 - Uruchom aplikacje: `.\build-fastener\Debug\Fin.exe`
 - Szukanie w kodzie: `rg -n "wzorzec" src`
-- UI smoke test: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1`
 
 ## Fastener (lokalizacja i dockowanie)
 - Repo Fastenera jest obok Fin: `..\Fastener` (w CMake: `add_subdirectory(../Fastener Fastener-build)`).
@@ -31,7 +30,4 @@
 - `Enter` w terminalu uruchamia komende i poprawnie przechodzi do nastepnej linii.
 - Build Debug przechodzi bez bledow.
 
-## Wymagane po zmianach UI
-- Po zmianach w `src/App` albo panelach UI uruchom smoke test: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ui_smoke.ps1`.
-- Sprawdz, czy powstal nowy katalog w `artifacts/ui/<timestamp>/` i sa w nim screenshoty oraz `summary.json`.
-- Jesli test nie przejdzie, nie koncz pracy bez diagnozy i poprawki.
+

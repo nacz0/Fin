@@ -1,5 +1,6 @@
 #include "App/Panels/SettingsPanel.h"
 
+#include "App/FinHelpers.h"
 #include "fastener/fastener.h"
 
 #include <algorithm>
@@ -27,7 +28,7 @@ void RenderSettingsPanel(
     }
 
     const fst::Rect bounds = ctx.layout().currentBounds();
-    ctx.layout().beginContainer(bounds);
+    beginScrollablePanelContent(ctx, "settings_scroll", bounds);
 
     if (fst::Checkbox(ctx, "Autouzupelnianie (LSP)", config.autocompleteEnabled)) {
         if (config.autocompleteEnabled) {
@@ -57,7 +58,7 @@ void RenderSettingsPanel(
         config.zoom = textScale;
     }
 
-    ctx.layout().endContainer();
+    endScrollablePanelContent(ctx, "settings_scroll", bounds);
     fst::EndDockableWindow(ctx);
 }
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -21,6 +22,162 @@ struct CppSyntaxPalette {
     fst::Color function;
     fst::Color punctuation;
 };
+
+struct ScrollablePanelState {
+    float scrollOffsetY = 0.0f;
+    float contentHeight = 0.0f;
+    bool draggingScrollbar = false;
+    float dragStartMouseY = 0.0f;
+    float dragStartScroll = 0.0f;
+};
+
+struct ScrollbarGeometry {
+    fst::Rect track;
+    fst::Rect thumb;
+    float maxScroll = 0.0f;
+    bool visible = false;
+};
+
+std::unordered_map<fst::WidgetId, ScrollablePanelState> g_scrollablePanelStates;
+
+std::string ScrollbarWidgetLabel(std::string_view id) {
+    std::string label(id);
+    label += "_scrollbar";
+    return label;
+}
+
+ScrollbarGeometry CalculateScrollbarGeometry(
+    const fst::Rect& bounds,
+    float contentHeight,
+    float scrollOffsetY,
+    const fst::Theme& theme) {
+    ScrollbarGeometry geometry;
+    const float viewHeight = std::max(1.0f, bounds.height());
+    const float normalizedContentHeight = std::max(viewHeight, contentHeight);
+    geometry.maxScroll = std::max(0.0f, normalizedContentHeight - viewHeight);
+    if (geometry.maxScroll <= 0.0f) {
+        return geometry;
+    }
+
+    const float scrollbarWidth = std::max(8.0f, theme.metrics.scrollbarWidth);
+    geometry.track = fst::Rect(bounds.right() - scrollbarWidth, bounds.y(), scrollbarWidth, bounds.height());
+
+    const float thumbHeight =
+        std::clamp((viewHeight / normalizedContentHeight) * geometry.track.height(), 20.0f, geometry.track.height());
+    const float thumbTravel = std::max(1.0f, geometry.track.height() - thumbHeight);
+    const float t = std::clamp(scrollOffsetY / geometry.maxScroll, 0.0f, 1.0f);
+    const float thumbY = geometry.track.y() + t * thumbTravel;
+    geometry.thumb = fst::Rect(
+        geometry.track.x() + 2.0f,
+        thumbY,
+        std::max(2.0f, geometry.track.width() - 4.0f),
+        thumbHeight);
+    geometry.visible = true;
+    return geometry;
+}
+
+} // namespace
+
+void beginScrollablePanelContent(fst::Context& ctx, std::string_view id, const fst::Rect& bounds) {
+    const fst::WidgetId regionId = ctx.makeId(id);
+    ScrollablePanelState& state = g_scrollablePanelStates[regionId];
+    auto& input = ctx.input();
+    const fst::Theme& theme = ctx.theme();
+    const fst::Vec2 mousePos = input.mousePos();
+    const bool hovered = bounds.contains(mousePos) && !ctx.isOccluded(mousePos);
+    const std::string scrollbarLabel = ScrollbarWidgetLabel(id);
+    const fst::WidgetId scrollbarId = ctx.makeId(scrollbarLabel);
+
+    ScrollbarGeometry geometry = CalculateScrollbarGeometry(bounds, state.contentHeight, state.scrollOffsetY, theme);
+    if (!geometry.visible) {
+        state.draggingScrollbar = false;
+        if (ctx.isCapturedBy(scrollbarId)) {
+            ctx.clearActiveWidget();
+        }
+    } else {
+        if (hovered && input.scrollDelta().y != 0.0f) {
+            const float lineHeight = ctx.font() ? ctx.font()->lineHeight() : 14.0f;
+            const float scrollStep = std::max(24.0f, lineHeight * 2.5f);
+            state.scrollOffsetY -= input.scrollDelta().y * scrollStep;
+        }
+
+        if (input.isMousePressed(fst::MouseButton::Left) &&
+            geometry.track.contains(mousePos) &&
+            !ctx.isOccluded(mousePos)) {
+            state.draggingScrollbar = true;
+            state.dragStartMouseY = mousePos.y;
+            state.dragStartScroll = state.scrollOffsetY;
+            ctx.setActiveWidget(scrollbarId);
+            input.consumeMouse();
+
+            if (!geometry.thumb.contains(mousePos)) {
+                const float thumbTravel = std::max(1.0f, geometry.track.height() - geometry.thumb.height());
+                const float clickT = std::clamp(
+                    (mousePos.y - geometry.track.y() - geometry.thumb.height() * 0.5f) / thumbTravel,
+                    0.0f,
+                    1.0f);
+                state.scrollOffsetY = clickT * geometry.maxScroll;
+                state.dragStartScroll = state.scrollOffsetY;
+            }
+        }
+
+        if (state.draggingScrollbar) {
+            if (input.isMouseDown(fst::MouseButton::Left)) {
+                const float thumbTravel = std::max(1.0f, geometry.track.height() - geometry.thumb.height());
+                const float scrollPerPixel = geometry.maxScroll / thumbTravel;
+                state.scrollOffsetY = state.dragStartScroll + (mousePos.y - state.dragStartMouseY) * scrollPerPixel;
+                ctx.window().setCursor(fst::Cursor::ResizeV);
+            } else {
+                state.draggingScrollbar = false;
+                if (ctx.isCapturedBy(scrollbarId)) {
+                    ctx.clearActiveWidget();
+                }
+            }
+        } else if (geometry.track.contains(mousePos) && !ctx.isOccluded(mousePos)) {
+            ctx.window().setCursor(fst::Cursor::ResizeV);
+        }
+    }
+
+    if (geometry.maxScroll > 0.0f) {
+        state.scrollOffsetY = std::clamp(state.scrollOffsetY, 0.0f, geometry.maxScroll);
+    } else {
+        state.scrollOffsetY = 0.0f;
+    }
+
+    ctx.layout().beginContainer(bounds);
+    ctx.layout().setScroll(0.0f, state.scrollOffsetY);
+}
+
+void endScrollablePanelContent(fst::Context& ctx, std::string_view id, const fst::Rect& bounds) {
+    const fst::WidgetId regionId = ctx.makeId(id);
+    ScrollablePanelState& state = g_scrollablePanelStates[regionId];
+    const fst::Theme& theme = ctx.theme();
+
+    const fst::Vec2 cursor = ctx.layout().currentPosition();
+    state.contentHeight = std::max(bounds.height(), cursor.y - bounds.y());
+    ScrollbarGeometry geometry = CalculateScrollbarGeometry(bounds, state.contentHeight, state.scrollOffsetY, theme);
+    if (geometry.maxScroll > 0.0f) {
+        state.scrollOffsetY = std::clamp(state.scrollOffsetY, 0.0f, geometry.maxScroll);
+        geometry = CalculateScrollbarGeometry(bounds, state.contentHeight, state.scrollOffsetY, theme);
+
+        if (geometry.visible) {
+            auto& dl = ctx.drawList();
+            const fst::Vec2 mousePos = ctx.input().mousePos();
+            const bool hovered = geometry.track.contains(mousePos) && !ctx.isOccluded(mousePos);
+            dl.addRectFilled(geometry.track, theme.colors.scrollbarTrack);
+            const fst::Color thumbColor = (state.draggingScrollbar || hovered)
+                ? theme.colors.scrollbarThumbHover
+                : theme.colors.scrollbarThumb;
+            dl.addRectFilled(geometry.thumb, thumbColor, geometry.thumb.width() * 0.5f);
+        }
+    } else {
+        state.scrollOffsetY = 0.0f;
+    }
+
+    ctx.layout().endContainer();
+}
+
+namespace {
 
 bool isIdentifierStart(char ch) {
     const unsigned char c = static_cast<unsigned char>(ch);

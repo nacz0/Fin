@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fin {
@@ -25,6 +26,9 @@ std::string normalizePath(const std::string& path);
 std::string uriToPath(const std::string& uri);
 
 std::vector<ExplorerEntry> listEntries(const std::filesystem::path& root);
+
+void beginScrollablePanelContent(fst::Context& ctx, std::string_view id, const fst::Rect& bounds);
+void endScrollablePanelContent(fst::Context& ctx, std::string_view id, const fst::Rect& bounds);
 
 size_t offsetFromPosition(const std::string& text, const fst::TextPosition& pos);
 fst::TextPosition positionFromOffset(const std::string& text, size_t offset);

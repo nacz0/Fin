@@ -16,7 +16,7 @@ void RenderExplorerPanel(
     }
 
     const fst::Rect bounds = ctx.layout().currentBounds();
-    ctx.layout().beginContainer(bounds);
+    beginScrollablePanelContent(ctx, "explorer_scroll", bounds);
 
     fst::Label(ctx, "Sciezka: " + currentPath.string());
     if (fst::Button(ctx, ".. (w gore)")) {
@@ -39,7 +39,7 @@ void RenderExplorerPanel(
         }
     }
 
-    ctx.layout().endContainer();
+    endScrollablePanelContent(ctx, "explorer_scroll", bounds);
     fst::EndDockableWindow(ctx);
 }
 

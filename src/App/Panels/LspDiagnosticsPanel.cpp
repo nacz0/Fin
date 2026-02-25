@@ -1,5 +1,6 @@
 #include "App/Panels/LspDiagnosticsPanel.h"
 
+#include "App/FinHelpers.h"
 #include "fastener/fastener.h"
 
 #include <algorithm>
@@ -41,12 +42,12 @@ void RenderLspDiagnosticsPanel(
     }
 
     const fst::Rect bounds = ctx.layout().currentBounds();
-    ctx.layout().beginContainer(bounds);
+    beginScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
     const fst::Theme& theme = ctx.theme();
 
     if (activeTab < 0 || activeTab >= static_cast<int>(docs.size())) {
         fst::LabelSecondary(ctx, "Brak aktywnego dokumentu.");
-        ctx.layout().endContainer();
+        endScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
         fst::EndDockableWindow(ctx);
         return;
     }
@@ -91,7 +92,7 @@ void RenderLspDiagnosticsPanel(
 
     if (diagnostics.empty()) {
         fst::LabelSecondary(ctx, "Brak diagnostyk LSP dla aktywnej karty.");
-        ctx.layout().endContainer();
+        endScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
         fst::EndDockableWindow(ctx);
         return;
     }
@@ -122,7 +123,7 @@ void RenderLspDiagnosticsPanel(
         fst::Separator(ctx);
     }
 
-    ctx.layout().endContainer();
+    endScrollablePanelContent(ctx, "lsp_diagnostics_scroll", bounds);
     fst::EndDockableWindow(ctx);
 }
 

@@ -11,6 +11,7 @@
 #include "App/Panels/EditorPanel.h"
 #include "App/Panels/ExplorerPanel.h"
 #include "App/Panels/LspDiagnosticsPanel.h"
+#include "App/Panels/PersonalizationPanel.h"
 #include "App/Panels/SettingsPanel.h"
 #include "App/Panels/TerminalPanel.h"
 
@@ -85,6 +86,7 @@ int RunFinApp() {
     bool showConsoleTab = true;
     bool showLspDiagnosticsTab = true;
     bool showTerminalTab = true;
+    bool showPersonalizationTab = false;
 
     std::string terminalInput;
     std::string terminalHistory;
@@ -111,6 +113,9 @@ int RunFinApp() {
 
     fst::MenuBar menuBar;
     fst::TabControl tabControl;
+
+    fst::Theme editableTheme = ctx.theme();
+    int selectedPersonalizationPreset = std::clamp(config.theme, 0, 2);
 
     auto clampActiveTab = [&]() {
         if (docs.empty()) {
@@ -732,6 +737,26 @@ int RunFinApp() {
         closeCompletionPopup();
     };
 
+    const auto refreshEditorsAfterThemeChange = [&]() {
+        for (auto& tab : docs) {
+            applyCppSyntaxHighlighting(tab->editor, tab->path.empty() ? tab->name : tab->path, ctx.theme());
+        }
+    };
+
+    const auto applyPresetThemeAndRefresh = [&](int themeId) {
+        config.theme = std::clamp(themeId, 0, 2);
+        applyTheme(ctx, config.theme);
+        editableTheme = ctx.theme();
+        selectedPersonalizationPreset = config.theme;
+        refreshEditorsAfterThemeChange();
+    };
+
+    const auto applyCustomThemeAndRefresh = [&](const fst::Theme& customTheme) {
+        ctx.setTheme(customTheme);
+        editableTheme = ctx.theme();
+        refreshEditorsAfterThemeChange();
+    };
+
     bool pendingMenuNew = false;
     bool pendingMenuOpen = false;
     bool pendingMenuSave = false;
@@ -773,6 +798,7 @@ int RunFinApp() {
     viewItems.emplace_back("view_lsp_diagnostics", "Diagnostyka LSP", [&]() { requestDockTab("Diagnostyka LSP", &showLspDiagnosticsTab); });
     viewItems.emplace_back("view_terminal", "Terminal", [&]() { requestDockTab("Terminal", &showTerminalTab); });
     viewItems.emplace_back("view_settings", "Ustawienia", [&]() { requestDockTab("Ustawienia", &showSettingsWindow); });
+    viewItems.emplace_back("view_personalization", "Personalizacja", [&]() { requestDockTab("Personalizacja", &showPersonalizationTab); });
     viewItems.push_back(fst::MenuItem::separator());
     viewItems.emplace_back("theme_dark", "Motyw: Ciemny", [&]() { config.theme = 0; pendingThemeChange = true; });
     viewItems.emplace_back("theme_light", "Motyw: Jasny", [&]() { config.theme = 1; pendingThemeChange = true; });
@@ -804,13 +830,14 @@ int RunFinApp() {
         const char* fallbackAnchorTitle;
         fst::DockDirection fallbackDirection;
     };
-    const std::array<ManagedDockWindow, 6> managedDockWindows = {{
+    const std::array<ManagedDockWindow, 7> managedDockWindows = {{
         {"Eksplorator", &showExplorerTab, "Edytor", fst::DockDirection::Left},
         {"Edytor", &showEditorTab, "Eksplorator", fst::DockDirection::Right},
         {"Konsola", &showConsoleTab, "Edytor", fst::DockDirection::Bottom},
         {"Diagnostyka LSP", &showLspDiagnosticsTab, "Edytor", fst::DockDirection::Bottom},
         {"Terminal", &showTerminalTab, "Edytor", fst::DockDirection::Bottom},
-        {"Ustawienia", &showSettingsWindow, "Edytor", fst::DockDirection::Center}
+        {"Ustawienia", &showSettingsWindow, "Edytor", fst::DockDirection::Center},
+        {"Personalizacja", &showPersonalizationTab, "Ustawienia", fst::DockDirection::Center}
     }};
     std::unordered_map<std::string, fst::DockNode::Id> lastDockNodeByTitle;
 
@@ -1025,10 +1052,7 @@ int RunFinApp() {
         }
 
         if (themeChanged) {
-            applyTheme(ctx, config.theme);
-            for (auto& tab : docs) {
-                applyCppSyntaxHighlighting(tab->editor, tab->path.empty() ? tab->name : tab->path, ctx.theme());
-            }
+            applyPresetThemeAndRefresh(config.theme);
         }
 
         if (actionNew) {
@@ -1071,6 +1095,7 @@ int RunFinApp() {
             fst::DockBuilder::DockWindow(ctx, "Diagnostyka LSP", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Terminal", bottomNode);
             fst::DockBuilder::DockWindow(ctx, "Ustawienia", centerNode);
+            fst::DockBuilder::DockWindow(ctx, "Personalizacja", centerNode);
 
             fst::DockBuilder::Finish();
             layoutInitialized = true;
@@ -1612,7 +1637,15 @@ int RunFinApp() {
             textScale,
             startLsp,
             stopLsp,
-            [&](int themeId) { applyTheme(ctx, themeId); });
+            [&](int themeId) { applyPresetThemeAndRefresh(themeId); });
+
+        RenderPersonalizationPanel(
+            ctx,
+            showPersonalizationTab,
+            editableTheme,
+            selectedPersonalizationPreset,
+            [&](int themeId) { applyPresetThemeAndRefresh(themeId); },
+            [&](const fst::Theme& customTheme) { applyCustomThemeAndRefresh(customTheme); });
 
         if (completionVisible && completionWindowDrawn &&
             input.isMousePressedRaw(fst::MouseButton::Left)) {
