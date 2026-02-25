@@ -54,7 +54,7 @@ void RenderEditorPanel(
 
     fst::TabControlOptions tabOptions;
     tabOptions.tabHeight = 30.0f;
-    tabOptions.showCloseButtons = false;
+    tabOptions.showCloseButtons = true;
 
     fst::Rect editorArea = tabControl.render(ctx, "editor_tabs", bounds, tabOptions, tabEvents);
     clampActiveTab();
