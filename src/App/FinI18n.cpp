@@ -38,6 +38,7 @@ constexpr TranslationEntry kTranslations[] = {
     {"menu.file.save", "Zapisz", "Save"},
     {"menu.file.close_tab", "Zamknij karte", "Close tab"},
     {"menu.file.exit", "Zakoncz", "Exit"},
+    {"menu.edit.find", "Szukaj", "Find"},
     {"menu.edit.autocomplete", "Autouzupelnianie", "Autocomplete"},
     {"menu.build.run", "Kompiluj i uruchom", "Build and run"},
     {"menu.view.explorer", "Eksplorator", "Explorer"},
@@ -96,6 +97,9 @@ constexpr TranslationEntry kTranslations[] = {
     {"completion.source.lsp", "Zrodlo: LSP", "Source: LSP"},
     {"completion.details", "Szczegoly: {0}", "Details: {0}"},
     {"completion.hint", "Strzalki = wybor, Enter = wstaw, Esc = zamknij", "Arrows = select, Enter = insert, Esc = close"},
+
+    {"find.next", "Dalej", "Next"},
+    {"find.previous", "Wstecz", "Previous"},
 
     {"explorer.path", "Sciezka: {0}", "Path: {0}"},
     {"explorer.up", ".. (w gore)", ".. (up)"},

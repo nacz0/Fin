@@ -610,6 +610,7 @@ int RunFinApp() {
     bool pendingMenuSave = false;
     bool pendingMenuCloseTab = false;
     bool pendingMenuBuild = false;
+    bool pendingMenuFind = false;
     bool pendingMenuAutocomplete = false;
     bool pendingThemeChange = false;
     int pendingDockTabFocus = -1;
@@ -636,6 +637,7 @@ int RunFinApp() {
         menuBar.addMenu(fst::i18n("menu.file"), fileItems);
 
         std::vector<fst::MenuItem> editItems;
+        editItems.emplace_back("find", fst::i18n("menu.edit.find"), [&]() { pendingMenuFind = true; }).withShortcut("Ctrl+F");
         editItems.emplace_back("autocomplete", fst::i18n("menu.edit.autocomplete"), [&]() { pendingMenuAutocomplete = true; }).withShortcut("Ctrl+Space");
         menuBar.addMenu(fst::i18n("menu.edit"), editItems);
 
@@ -751,6 +753,7 @@ int RunFinApp() {
         bool actionSave = pendingMenuSave;
         bool actionCloseTab = pendingMenuCloseTab;
         bool actionBuild = pendingMenuBuild;
+        bool actionFind = pendingMenuFind;
         bool actionAutocomplete = pendingMenuAutocomplete;
         bool themeChanged = pendingThemeChange;
 
@@ -759,6 +762,7 @@ int RunFinApp() {
         pendingMenuSave = false;
         pendingMenuCloseTab = false;
         pendingMenuBuild = false;
+        pendingMenuFind = false;
         pendingMenuAutocomplete = false;
         pendingThemeChange = false;
 
@@ -776,6 +780,7 @@ int RunFinApp() {
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::O)) actionOpen = true;
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::S)) actionSave = true;
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::W)) actionCloseTab = true;
+        if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::F)) actionFind = true;
         if (input.modifiers().ctrl && input.isKeyPressed(fst::Key::Space)) actionAutocomplete = true;
         if (input.isKeyPressed(fst::Key::F5)) actionBuild = true;
         if (completionVisible && input.isKeyPressed(fst::Key::Escape)) {
@@ -805,6 +810,14 @@ int RunFinApp() {
         }
         if (actionBuild) {
             runBuild();
+        }
+        if (actionFind) {
+            RequestDockTab(pendingDockTabFocus, DockWindowId::Editor, &showEditorTab);
+            clampActiveTab();
+            if (activeTab >= 0 && activeTab < static_cast<int>(docs.size())) {
+                docs[activeTab]->findVisible = true;
+                docs[activeTab]->findFocusPending = true;
+            }
         }
         if (actionAutocomplete) {
             requestCompletionForActive(true);

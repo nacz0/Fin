@@ -24,6 +24,11 @@ struct DocumentTab {
     bool lspOpened = false;
     std::string lspTextSnapshot;
     std::vector<LSPDiagnostic> lspDiagnostics;
+
+    bool findVisible = false;
+    bool findFocusPending = false;
+    std::string findQuery;
+    int findMatchIndex = -1;
 };
 
 } // namespace fin
