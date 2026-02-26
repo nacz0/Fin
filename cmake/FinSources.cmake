@@ -1,0 +1,25 @@
+set(FIN_CORE_SOURCES
+    src/Core/Compiler.cpp
+    src/Core/ConfigManager.cpp
+    src/Core/FileManager.cpp
+    src/Core/LSPClient.cpp
+    src/Core/Terminal.cpp
+)
+
+set(FIN_APP_SOURCES
+    src/App/FinApp.cpp
+    src/App/FinCompletionLocal.cpp
+    src/App/FinCompletionUi.cpp
+    src/App/FinDockingUi.cpp
+    src/App/FinEditorAssists.cpp
+    src/App/FinStatusBar.cpp
+    src/App/FinI18n.cpp
+    src/App/FinHelpers.cpp
+    src/App/Panels/ConsolePanel.cpp
+    src/App/Panels/EditorPanel.cpp
+    src/App/Panels/ExplorerPanel.cpp
+    src/App/Panels/LspDiagnosticsPanel.cpp
+    src/App/Panels/PersonalizationPanel.cpp
+    src/App/Panels/SettingsPanel.cpp
+    src/App/Panels/TerminalPanel.cpp
+)

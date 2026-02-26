@@ -66,4 +66,6 @@ private:
     int m_nextId = 1;
     std::mutex m_handlersMutex;
     std::map<int, std::function<void(const nlohmann::json&)>> m_responseHandlers;
+    std::mutex m_documentVersionsMutex;
+    std::map<std::string, int> m_documentVersions;
 };
