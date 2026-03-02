@@ -17,5 +17,6 @@ struct AppConfig {
     bool clangBuildEnabled = true;
     bool autoClosingBrackets = true;
     bool smartIndentEnabled = true;
+    bool minimapEnabled = true;
     bool showSettingsWindow = false;
 };

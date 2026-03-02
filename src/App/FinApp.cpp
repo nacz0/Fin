@@ -653,6 +653,7 @@ int RunFinApp() {
         viewItems.emplace_back("view_terminal", fst::i18n("menu.view.terminal"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Terminal, &showTerminalTab); });
         viewItems.emplace_back("view_settings", fst::i18n("menu.view.settings"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Settings, &showSettingsWindow); });
         viewItems.emplace_back("view_personalization", fst::i18n("menu.view.personalization"), [&]() { RequestDockTab(pendingDockTabFocus, DockWindowId::Personalization, &showPersonalizationTab); });
+        viewItems.emplace_back(fst::MenuItem::checkbox("view_minimap", fst::i18n("menu.view.minimap"), &config.minimapEnabled));
         viewItems.push_back(fst::MenuItem::separator());
         viewItems.emplace_back("theme_dark", fst::i18n("menu.view.theme_dark"), [&]() { config.theme = 0; pendingThemeChange = true; });
         viewItems.emplace_back("theme_light", fst::i18n("menu.view.theme_light"), [&]() { config.theme = 1; pendingThemeChange = true; });
@@ -957,6 +958,7 @@ int RunFinApp() {
                 docs,
                 activeTab,
                 tabControl,
+                config.minimapEnabled,
                 textScale,
                 completionVisible,
                 completionOwnerTab,

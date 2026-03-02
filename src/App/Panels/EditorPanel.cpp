@@ -4,7 +4,9 @@
 #include "fastener/fastener.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
+#include <string_view>
 #include <vector>
 
 namespace fin {
@@ -97,6 +99,310 @@ std::vector<fst::TextSegment> BuildSearchStyledSegments(
     }
 
     return result;
+}
+
+struct EditorLayout {
+    fst::Rect textArea;
+    fst::Rect minimapArea;
+    bool showMinimap = false;
+};
+
+EditorLayout BuildEditorLayout(const fst::Rect& editorArea, bool minimapEnabled) {
+    EditorLayout layout;
+    layout.textArea = editorArea;
+
+    if (!minimapEnabled) {
+        return layout;
+    }
+    if (editorArea.width() < 170.0f || editorArea.height() < 40.0f) {
+        return layout;
+    }
+
+    const float gap = 6.0f;
+    const float minimapWidth = std::clamp(editorArea.width() * 0.12f, 82.0f, 150.0f);
+    const float textWidth = editorArea.width() - minimapWidth - gap;
+    if (textWidth < 40.0f) {
+        return layout;
+    }
+
+    layout.textArea = fst::Rect(editorArea.x(), editorArea.y(), textWidth, editorArea.height());
+    layout.minimapArea = fst::Rect(layout.textArea.right() + gap, editorArea.y(), minimapWidth, editorArea.height());
+    layout.showMinimap = true;
+    return layout;
+}
+
+struct MinimapLineRange {
+    size_t start = 0;
+    size_t end = 0;
+    int visualLength = 0;
+};
+
+int MinimapColumnAdvance(char ch) {
+    return ch == '\t' ? 4 : 1;
+}
+
+std::vector<MinimapLineRange> CollectMinimapLineRanges(const std::string& text) {
+    std::vector<MinimapLineRange> lines;
+    lines.reserve(256);
+
+    const auto pushLine = [&](size_t start, size_t end) {
+        MinimapLineRange line;
+        line.start = start;
+        line.end = end;
+        for (size_t i = start; i < end; ++i) {
+            line.visualLength += MinimapColumnAdvance(text[i]);
+        }
+        lines.push_back(line);
+    };
+
+    size_t lineStart = 0;
+    for (size_t i = 0; i <= text.size(); ++i) {
+        if (i != text.size() && text[i] != '\n') {
+            continue;
+        }
+        pushLine(lineStart, i);
+        lineStart = i + 1;
+    }
+
+    if (lines.empty()) {
+        lines.push_back({});
+    }
+    return lines;
+}
+
+struct MinimapRenderInfo {
+    fst::Rect innerBounds;
+    int totalLines = 1;
+};
+
+MinimapRenderInfo RenderEditorMinimap(
+    fst::Context& ctx,
+    const fst::Rect& minimapArea,
+    const std::string& text,
+    bool cppLike,
+    int firstVisibleLine,
+    int visibleLineCount,
+    int cursorLine,
+    bool isHovered,
+    bool isDragging) {
+    fst::IDrawList& dl = ctx.drawList();
+    const fst::Theme& theme = ctx.theme();
+
+    dl.addRectFilled(minimapArea, theme.colors.panelBackground.withAlpha(static_cast<uint8_t>(232)));
+    dl.addRect(minimapArea, theme.colors.border);
+
+    MinimapRenderInfo info;
+    const fst::Rect inner(
+        minimapArea.x() + 4.0f,
+        minimapArea.y() + 4.0f,
+        std::max(0.0f, minimapArea.width() - 8.0f),
+        std::max(0.0f, minimapArea.height() - 8.0f));
+    info.innerBounds = inner;
+    if (inner.width() <= 1.0f || inner.height() <= 1.0f) {
+        return info;
+    }
+
+    const std::vector<MinimapLineRange> lineRanges = CollectMinimapLineRanges(text);
+    const int totalLines = std::max(1, static_cast<int>(lineRanges.size()));
+    info.totalLines = totalLines;
+    const auto maxLineIt = std::max_element(
+        lineRanges.begin(),
+        lineRanges.end(),
+        [](const MinimapLineRange& lhs, const MinimapLineRange& rhs) {
+            return lhs.visualLength < rhs.visualLength;
+        });
+    const int maxLineLength = (maxLineIt == lineRanges.end()) ? 0 : maxLineIt->visualLength;
+    const int visibleColumns = std::clamp(maxLineLength + 4, 64, 240);
+    const float columnWidth = inner.width() / static_cast<float>(visibleColumns);
+    const bool useSyntaxColor = cppLike && totalLines <= 1800;
+
+    const int drawDensity = std::max(1, static_cast<int>(inner.height() * 1.8f));
+    const int lineStep = std::max(1, totalLines / drawDensity);
+
+    dl.pushClipRect(inner);
+    for (int line = 0; line < totalLines; line += lineStep) {
+        const int lineLimit = std::min(totalLines, line + lineStep);
+        const int sampleLine = line + (lineLimit - line) / 2;
+        const MinimapLineRange& sample = lineRanges[static_cast<size_t>(sampleLine)];
+        const std::string_view lineView(text.data() + sample.start, sample.end - sample.start);
+
+        const float lineTop = inner.y() + (static_cast<float>(line) / static_cast<float>(totalLines)) * inner.height();
+        const float lineBottom =
+            inner.y() + (static_cast<float>(lineLimit) / static_cast<float>(totalLines)) * inner.height();
+        const float lineHeight = std::max(1.0f, lineBottom - lineTop - 0.15f);
+
+        if (lineView.empty()) {
+            continue;
+        }
+
+        std::vector<fst::Color> charColors(lineView.size(), theme.colors.textSecondary);
+        if (useSyntaxColor) {
+            const std::string lineOwned(lineView);
+            const std::vector<fst::TextSegment> segments = colorizeCppSnippet(lineOwned, theme);
+            for (const fst::TextSegment& segment : segments) {
+                const int from = std::clamp(segment.startColumn, 0, static_cast<int>(lineView.size()));
+                const int to = std::clamp(segment.endColumn, 0, static_cast<int>(lineView.size()));
+                for (int i = from; i < to; ++i) {
+                    charColors[static_cast<size_t>(i)] = segment.color;
+                }
+            }
+        }
+
+        bool runActive = false;
+        int runStartColumn = 0;
+        int runWidthColumns = 0;
+        fst::Color runColor = theme.colors.textSecondary;
+        int visualColumn = 0;
+
+        const auto flushRun = [&]() {
+            if (!runActive || runWidthColumns <= 0) {
+                return;
+            }
+            const float x = inner.x() + static_cast<float>(runStartColumn) * columnWidth;
+            if (x >= inner.right()) {
+                runActive = false;
+                runWidthColumns = 0;
+                return;
+            }
+            float width = std::max(1.0f, static_cast<float>(runWidthColumns) * columnWidth);
+            width = std::min(width, std::max(1.0f, inner.right() - x));
+            dl.addRectFilled(fst::Rect(x, lineTop, width, lineHeight), runColor);
+            runActive = false;
+            runWidthColumns = 0;
+        };
+
+        for (size_t i = 0; i < lineView.size() && visualColumn < visibleColumns; ++i) {
+            const char ch = lineView[i];
+            const int advance = MinimapColumnAdvance(ch);
+            const bool whitespace = (ch == ' ' || ch == '\t');
+
+            if (whitespace) {
+                flushRun();
+                visualColumn += advance;
+                continue;
+            }
+
+            fst::Color baseColor = charColors[i];
+            fst::Color pixelColor(baseColor.r, baseColor.g, baseColor.b, 120);
+
+            if (!runActive) {
+                runActive = true;
+                runStartColumn = visualColumn;
+                runWidthColumns = advance;
+                runColor = pixelColor;
+            } else if (!ColorsEqual(runColor, pixelColor)) {
+                flushRun();
+                runActive = true;
+                runStartColumn = visualColumn;
+                runWidthColumns = advance;
+                runColor = pixelColor;
+            } else {
+                runWidthColumns += advance;
+            }
+
+            visualColumn += advance;
+        }
+        flushRun();
+    }
+    dl.popClipRect();
+
+    const int clampedVisibleLines = std::clamp(visibleLineCount, 1, totalLines);
+    const int topLineMax = std::max(0, totalLines - clampedVisibleLines);
+    const int viewportTopLine = std::clamp(firstVisibleLine, 0, topLineMax);
+    const float viewportTop =
+        inner.y() + (static_cast<float>(viewportTopLine) / static_cast<float>(totalLines)) * inner.height();
+    const float viewportHeight = std::max(
+        10.0f,
+        (static_cast<float>(clampedVisibleLines) / static_cast<float>(totalLines)) * inner.height());
+    const fst::Rect viewportRect(
+        inner.x(),
+        std::min(viewportTop, inner.bottom() - viewportHeight),
+        inner.width(),
+        viewportHeight);
+
+    const fst::Color viewportFill = isDragging
+        ? theme.colors.primary.withAlpha(static_cast<uint8_t>(72))
+        : theme.colors.primary.withAlpha(static_cast<uint8_t>(42));
+    const fst::Color viewportBorder = (isDragging || isHovered)
+        ? theme.colors.primary.withAlpha(static_cast<uint8_t>(210))
+        : theme.colors.primary.withAlpha(static_cast<uint8_t>(170));
+    dl.addRectFilled(viewportRect, viewportFill);
+    dl.addRect(viewportRect, viewportBorder);
+
+    if (isHovered || isDragging) {
+        const float hoverY = std::clamp(ctx.input().mousePos().y, inner.y(), inner.bottom());
+        const float hoverRatio = (hoverY - inner.y()) / std::max(1.0f, inner.height());
+        const int hoverLine = std::clamp(
+            static_cast<int>(hoverRatio * static_cast<float>(std::max(0, totalLines - 1))),
+            0,
+            std::max(0, totalLines - 1));
+        const float hoverTop =
+            inner.y() + (static_cast<float>(hoverLine) / static_cast<float>(totalLines)) * inner.height();
+        const float hoverBottom =
+            inner.y() + (static_cast<float>(hoverLine + 1) / static_cast<float>(totalLines)) * inner.height();
+        const fst::Rect hoverRect(inner.x(), hoverTop, inner.width(), std::max(1.0f, hoverBottom - hoverTop));
+        dl.addRectFilled(hoverRect, theme.colors.info.withAlpha(static_cast<uint8_t>(34)));
+        dl.addLine(
+            fst::Vec2(inner.x(), hoverRect.y()),
+            fst::Vec2(inner.right(), hoverRect.y()),
+            theme.colors.info.withAlpha(static_cast<uint8_t>(150)),
+            1.0f);
+    }
+
+    const int clampedCursorLine = std::clamp(cursorLine, 0, totalLines - 1);
+    const float cursorY =
+        inner.y() + (static_cast<float>(clampedCursorLine) + 0.5f) / static_cast<float>(totalLines) * inner.height();
+    dl.addLine(
+        fst::Vec2(inner.x(), cursorY),
+        fst::Vec2(inner.right(), cursorY),
+        theme.colors.warning.withAlpha(static_cast<uint8_t>(150)),
+        1.0f);
+    return info;
+}
+
+void HandleMinimapNavigation(
+    fst::Context& ctx,
+    const fst::WidgetInteraction& interaction,
+    const MinimapRenderInfo& minimapInfo,
+    fst::TextEditor& editor) {
+    if (minimapInfo.totalLines <= 0 || minimapInfo.innerBounds.height() <= 0.0f) {
+        return;
+    }
+
+    bool navigated = false;
+
+    if (interaction.clicked || interaction.dragging) {
+        const float mouseY =
+            std::clamp(ctx.input().mousePos().y, minimapInfo.innerBounds.y(), minimapInfo.innerBounds.bottom());
+        const float ratio =
+            (mouseY - minimapInfo.innerBounds.y()) / std::max(1.0f, minimapInfo.innerBounds.height());
+        const int targetLine = std::clamp(
+            static_cast<int>(ratio * static_cast<float>(std::max(0, minimapInfo.totalLines - 1))),
+            0,
+            std::max(0, minimapInfo.totalLines - 1));
+        editor.centerViewOnLine(targetLine);
+        navigated = true;
+    }
+
+    if (interaction.hovered) {
+        const float scrollDeltaY = ctx.input().scrollDelta().y;
+        if (scrollDeltaY != 0.0f) {
+            const int currentCenter = editor.firstVisibleLine() + editor.visibleLineCount() / 2;
+            const int scrollStep = std::max(1, editor.visibleLineCount() / 4);
+            const int targetCenter = currentCenter - static_cast<int>(scrollDeltaY * static_cast<float>(scrollStep));
+            editor.centerViewOnLine(targetCenter);
+            navigated = true;
+        }
+    }
+
+    if (!navigated) {
+        return;
+    }
+
+    const std::string editorWidgetKey =
+        "text_editor_" + std::to_string(reinterpret_cast<std::uintptr_t>(&editor));
+    ctx.setFocusedWidget(ctx.makeId(editorWidgetKey));
+    ctx.input().consumeMouse();
 }
 
 void ApplySearchAwareStyle(DocumentTab& tab, const fst::Theme& theme) {
@@ -205,6 +511,7 @@ void RenderEditorPanel(
     std::vector<std::unique_ptr<DocumentTab>>& docs,
     int& activeTab,
     fst::TabControl& tabControl,
+    bool minimapEnabled,
     float textScale,
     bool completionVisible,
     int completionOwnerTab,
@@ -343,15 +650,38 @@ void RenderEditorPanel(
         }
         activeDoc.editor.setLineAnnotations(std::move(lineAnnotations));
 
-        if (editorArea.width() > 8.0f && editorArea.height() > 8.0f) {
+        const EditorLayout layout = BuildEditorLayout(editorArea, minimapEnabled);
+
+        if (layout.textArea.width() > 8.0f && layout.textArea.height() > 8.0f) {
             fst::TextEditorOptions editorOptions;
             editorOptions.fontSize = 14.0f * textScale;
             editorOptions.showLineNumbers = true;
             editorOptions.suppressNavigationKeys = completionVisible;
-            activeDoc.editor.render(ctx, editorArea, editorOptions);
+            activeDoc.editor.render(ctx, layout.textArea, editorOptions);
         }
 
         std::string currentText = activeDoc.editor.getText();
+        if (layout.showMinimap) {
+            const std::string minimapWidgetKey = "editor_minimap_" + activeDoc.id;
+            const fst::WidgetInteraction minimapInteraction = fst::handleWidgetInteraction(
+                ctx,
+                ctx.makeId(minimapWidgetKey),
+                layout.minimapArea,
+                true);
+            const std::string minimapPathOrName = activeDoc.path.empty() ? activeDoc.name : activeDoc.path;
+            const bool minimapCppLike = isCppLikePath(minimapPathOrName);
+            const MinimapRenderInfo minimapInfo = RenderEditorMinimap(
+                ctx,
+                layout.minimapArea,
+                currentText,
+                minimapCppLike,
+                activeDoc.editor.firstVisibleLine(),
+                activeDoc.editor.visibleLineCount(),
+                activeDoc.editor.cursor().line,
+                minimapInteraction.hovered,
+                minimapInteraction.dragging);
+            HandleMinimapNavigation(ctx, minimapInteraction, minimapInfo, activeDoc.editor);
+        }
         activeDoc.dirty = (currentText != activeDoc.savedText);
 
         if (lspActive && !activeDoc.lspDocumentPath.empty()) {

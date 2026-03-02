@@ -20,6 +20,7 @@ void RenderEditorPanel(
     std::vector<std::unique_ptr<DocumentTab>>& docs,
     int& activeTab,
     fst::TabControl& tabControl,
+    bool minimapEnabled,
     float textScale,
     bool completionVisible,
     int completionOwnerTab,
