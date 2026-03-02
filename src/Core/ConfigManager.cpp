@@ -18,6 +18,7 @@ void SaveConfig(const AppConfig& config) {
         out << "clangbuild=" << (config.clangBuildEnabled ? "1" : "0") << "\n";
         out << "brackets=" << (config.autoClosingBrackets ? "1" : "0") << "\n";
         out << "indent=" << (config.smartIndentEnabled ? "1" : "0") << "\n";
+        out << "minimap=" << (config.minimapEnabled ? "1" : "0") << "\n";
         
         for (const auto& path : config.openFiles) {
             if (!path.empty()) {
@@ -53,6 +54,7 @@ AppConfig LoadConfig() {
                 else if (key == "clangbuild") config.clangBuildEnabled = (value == "1");
                 else if (key == "brackets") config.autoClosingBrackets = (value == "1");
                 else if (key == "indent") config.smartIndentEnabled = (value == "1");
+                else if (key == "minimap") config.minimapEnabled = (value == "1");
                 else if (key == "file") config.openFiles.push_back(value);
             }
         }

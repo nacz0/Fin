@@ -43,6 +43,7 @@ void RenderSettingsPanel(
     (void)fst::Checkbox(ctx, fst::i18n("settings.build_clang"), config.clangBuildEnabled);
     (void)fst::Checkbox(ctx, fst::i18n("settings.auto_brackets"), config.autoClosingBrackets);
     (void)fst::Checkbox(ctx, fst::i18n("settings.smart_indent"), config.smartIndentEnabled);
+    (void)fst::Checkbox(ctx, fst::i18n("settings.minimap"), config.minimapEnabled);
 
     std::vector<std::string> themeNames = {
         fst::i18n("theme.dark"),
