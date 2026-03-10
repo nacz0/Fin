@@ -78,6 +78,12 @@ Release executable path:
 - App runtime code lives in `src/App` and reusable infrastructure in `src/Core`.
 - CMake source lists are centralized in `cmake/FinSources.cmake` for easier maintenance.
 
+## Development
+
+Parts of this project were implemented using an agentic coding workflow with Codex.
+AI assistance was used to accelerate development, while architecture, design
+decisions, debugging and integration were performed manually.
+
 ## UI Smoke Testing (Windows)
 
 Fin includes a PowerShell UI smoke harness that can:
@@ -118,3 +124,4 @@ Action format details:
 
 Artifacts are written to:
 - `artifacts/ui/<timestamp>/`
+
