@@ -1,0 +1,12 @@
+[
+  { "type": "activate" },
+  { "type": "sleep", "ms": 700 },
+  { "type": "screenshot", "name": "launch" },
+  { "type": "click", "coordMode": "relative", "x": 0.55, "y": 0.40 },
+  { "type": "sleep", "ms": 200 },
+  { "type": "keys", "value": "ui smoke from codex" },
+  { "type": "sleep", "ms": 300 },
+  { "type": "keys", "value": "{F5}" },
+  { "type": "sleep", "ms": 1200 },
+  { "type": "screenshot", "name": "after_f5" }
+]

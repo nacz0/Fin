@@ -1,102 +1,37 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.16)
 
 project(Fin LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Wyciszamy ostrzeżenie o FetchContent_Populate (dla świętego spokoju)
-if(POLICY CMP0169)
-  cmake_policy(SET CMP0169 OLD)
-endif()
+include(cmake/FinSources.cmake)
 
-include(FetchContent)
+# Build Fastener as a local dependency.
+set(FST_BUILD_EXAMPLES OFF CACHE BOOL "Disable Fastener examples" FORCE)
+set(FST_BUILD_TESTS OFF CACHE BOOL "Disable Fastener tests" FORCE)
+add_subdirectory(../Fastener Fastener-build)
 
-# 1. GLFW
-FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw GIT_TAG 3.3.8)
-FetchContent_MakeAvailable(glfw)
-
-# 2. ImGui
-FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui GIT_TAG docking)
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    FetchContent_Populate(imgui)
-endif()
-
-# 3. TextEditor
-FetchContent_Declare(color_text_edit GIT_REPOSITORY https://github.com/BalazsJako/ImGuiColorTextEdit GIT_TAG master)
-FetchContent_GetProperties(color_text_edit)
-if(NOT color_text_edit_POPULATED)
-    FetchContent_Populate(color_text_edit)
-endif()
-
-# 4. JSON for LSP (Single Header)
-FetchContent_Declare(json_hpp URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp DOWNLOAD_NO_EXTRACT TRUE)
-FetchContent_MakeAvailable(json_hpp)
-
-# 5. Portable File Dialogs (POPRAWIONE)
-FetchContent_Declare(
-    pfd 
-    GIT_REPOSITORY https://github.com/samhocevar/portable-file-dialogs 
-    GIT_TAG main  # <--- ZMIANA: 'master' na 'main'
-)
-# Ręczne pobieranie (bo biblioteka nie ma własnego CMakeLists.txt)
-FetchContent_GetProperties(pfd)
-if(NOT pfd_POPULATED)
-    FetchContent_Populate(pfd)
-endif()
-
-add_executable(Fin 
-    src/main.cpp 
-    
-    # Core
-    src/Core/ConfigManager.cpp
-    src/Core/FileManager.cpp
-    src/Core/LSPClient.cpp
-    src/Core/Terminal.cpp
-    src/Core/Compiler.cpp
-    
-    # Editor
-    src/Editor/EditorLogic.cpp
-    src/Editor/SearchLogic.cpp
-    src/Editor/AutocompleteLogic.cpp
-    src/Editor/ThemeManager.cpp
-    
-    # UI
-    src/UI/MenuBar.cpp
-    src/UI/SettingsPanel.cpp
-    src/UI/ExplorerPanel.cpp
-    src/UI/ConsolePanel.cpp
-    src/UI/TerminalPanel.cpp
-    src/UI/AutocompletePopup.cpp
-)
-
-target_include_directories(Fin PRIVATE 
+add_library(fin_core STATIC ${FIN_CORE_SOURCES})
+target_include_directories(fin_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${imgui_SOURCE_DIR} 
-    ${imgui_SOURCE_DIR}/backends
-    ${color_text_edit_SOURCE_DIR}
-    ${pfd_SOURCE_DIR} 
-    ${json_hpp_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
 )
 
-target_sources(Fin PRIVATE
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-    ${color_text_edit_SOURCE_DIR}/TextEditor.cpp
+add_library(fin_app STATIC ${FIN_APP_SOURCES})
+target_include_directories(fin_app PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
 )
+target_link_libraries(fin_app PUBLIC fin_core fastener)
 
-target_link_libraries(Fin PRIVATE glfw)
+add_executable(Fin src/main.cpp)
+target_link_libraries(Fin PRIVATE fin_app)
 
-if(UNIX AND NOT APPLE)
-    target_link_libraries(Fin PRIVATE GL)
-elseif(APPLE)
-    target_link_libraries(Fin PRIVATE "-framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo")
-elseif(WIN32)
-    target_link_libraries(Fin PRIVATE opengl32)
-endif()
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src FILES
+    src/main.cpp
+    ${FIN_APP_SOURCES}
+    ${FIN_CORE_SOURCES}
+)

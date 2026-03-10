@@ -76,7 +76,8 @@ void Terminal::Stop() {
 void Terminal::SendInput(const std::string& input) {
     if (!m_running || !m_hStdInWrite) return;
     
-    std::string data = input + "\n";
+    // cmd.exe expects CRLF for Enter on Windows.
+    std::string data = input + "\r\n";
     DWORD written;
     WriteFile(m_hStdInWrite, data.c_str(), (DWORD)data.length(), &written, NULL);
 }
